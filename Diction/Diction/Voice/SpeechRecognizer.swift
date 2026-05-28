@@ -38,7 +38,12 @@ final class SpeechRecognizer {
 
   private var inContinuous = false
   private var isExternallySuspended = false
-  private var contextualStrings: [String] = []
+
+  /// Called at the start of every capture cycle to get the contextual
+  /// strings for `SFSpeechRecognizer`. Closure form (rather than a stored
+  /// `[String]`) lets the caller refresh the biasing list per utterance
+  /// — e.g., to fold in vocabulary from the most recent game responses.
+  private var contextualStringsProvider: (@MainActor () -> [String])?
 
   private var silenceTask: Task<Void, Never>?
   private let silenceInterval: Duration = .milliseconds(1200)
@@ -63,10 +68,13 @@ final class SpeechRecognizer {
 
   // MARK: - Continuous mode
 
-  /// Enter continuous mode. Capture starts immediately unless suspended.
-  func startContinuous(contextualStrings: [String]) {
+  /// Enter continuous mode. The provider closure is called fresh at the
+  /// start of every capture cycle, so the recognizer's biasing list can
+  /// adapt as the game state evolves (e.g., new room descriptions
+  /// introduce new vocabulary).
+  func startContinuous(contextualStringsProvider: @MainActor @escaping () -> [String]) {
     inContinuous = true
-    self.contextualStrings = contextualStrings
+    self.contextualStringsProvider = contextualStringsProvider
     reconcile()
   }
 
@@ -76,6 +84,7 @@ final class SpeechRecognizer {
   func stopContinuous() {
     inContinuous = false
     isExternallySuspended = false
+    contextualStringsProvider = nil
     silenceTask?.cancel()
     stopCaptureInternal()
   }
@@ -127,11 +136,13 @@ final class SpeechRecognizer {
 
     let req = SFSpeechAudioBufferRecognitionRequest()
     req.shouldReportPartialResults = true
-    // Apple's docs don't publish a hard limit, but ~1000 strings is the
-    // commonly cited practical ceiling. Above 200 the per-string weight
-    // is reduced, but inclusion still helps the recognizer prefer these
-    // words over similar-sounding common-vocabulary alternatives.
-    let cappedContext = Array(contextualStrings.prefix(1000))
+    // Refresh contextual strings each cycle so per-utterance biasing
+    // (e.g., nouns harvested from the most recent room description) can
+    // evolve as the game state changes. Apple's docs don't publish a
+    // hard limit, but ~1000 strings is the commonly cited practical
+    // ceiling.
+    let strings = contextualStringsProvider?() ?? []
+    let cappedContext = Array(strings.prefix(1000))
     req.contextualStrings = cappedContext
     // Tell the recognizer to expect short, command-style utterances. This
     // shifts its language model away from free-dictation priors that prefer

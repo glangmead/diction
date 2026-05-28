@@ -340,7 +340,9 @@ struct GameView: View {
       guard !trimmed.isEmpty else { return }
       sendInput(trimmed, fromVoice: true)
     }
-    recognizer.startContinuous(contextualStrings: contextualStringsForRecognition())
+    recognizer.startContinuous { @MainActor in
+      contextualStringsForRecognition()
+    }
     narrateOpeningIfNeeded()
   }
 
@@ -366,14 +368,19 @@ struct GameView: View {
     }
   }
 
-  /// Composes the contextual-strings list for `SFSpeechRecognizer`:
-  /// canonical IF terms first (so they survive truncation regardless of
-  /// per-game dictionary size), then the game's extracted parser dict.
-  /// Duplicates are dropped case-insensitively.
+  /// Composes the recognizer's contextual-strings list, rebuilt every
+  /// cycle so per-utterance biasing adapts to the current game state.
+  /// Priority order (earliest = strongest weight): canonical IF terms,
+  /// then transcript vocabulary, then full parser dictionary. Duplicates
+  /// dropped case-insensitively.
   private func contextualStringsForRecognition() -> [String] {
     var seen: Set<String> = []
     var ordered: [String] = []
     for word in IFCanonicalTerms.all where seen.insert(word.lowercased()).inserted {
+      ordered.append(word)
+    }
+    let transcriptWords = TranscriptVocabulary.extract(from: session.transcript)
+    for word in transcriptWords where seen.insert(word.lowercased()).inserted {
       ordered.append(word)
     }
     for word in session.dictionary where seen.insert(word.lowercased()).inserted {
