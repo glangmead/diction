@@ -16,8 +16,21 @@ final class InterpreterSession {
   /// Output entries appended over the course of play, in order.
   private(set) var transcript: [StyledText] = []
 
-  /// True when the interpreter is blocked waiting for line input.
-  private(set) var isAwaitingInput = false
+  /// Monotonic counter bumped on every transcript mutation, including the
+  /// in-place merge path (`line.append == true`) that doesn't change
+  /// `transcript.count`. View code observes this for auto-scroll triggers
+  /// that need to fire on any visible change, not just append events.
+  private(set) var transcriptRevision: Int = 0
+
+  /// The kind of input the interpreter is currently blocked waiting for,
+  /// or nil while the interpreter is running. Distinguishes line input
+  /// (typed sentences) from char input (single keypress like the SPACE
+  /// at Curses's title screen).
+  private(set) var inputMode: RemGlkUpdate.InputType?
+
+  /// Convenience derived from `inputMode` so existing view code that
+  /// only cares about "is input wanted?" keeps working.
+  var isAwaitingInput: Bool { inputMode != nil }
 
   /// Vocabulary words from the story file, used to bias speech recognition.
   private(set) var dictionary: Set<String> = []
@@ -127,13 +140,25 @@ final class InterpreterSession {
     try await readNextUpdate()
   }
 
+  /// Drops all but the trailing `count` entries from the transcript.
+  /// Used after RESTORE / RESTART when the game doesn't auto-clear the
+  /// buffer — the prior play log would otherwise pile up under the
+  /// post-restore state. No-op if `count` already covers the whole array.
+  func trimTranscript(keepingSuffix count: Int) {
+    let clamped = max(0, min(count, transcript.count))
+    guard clamped < transcript.count else { return }
+    transcript = Array(transcript.suffix(clamped))
+    transcriptRevision &+= 1
+  }
+
   /// Sends a parser command and reads the next interpreter update.
   /// The command is also appended to the transcript as a visible input echo.
   func send(_ command: String) async {
-    guard isAwaitingInput else { return }
-    isAwaitingInput = false
+    guard inputMode == .line else { return }
+    inputMode = nil
 
     transcript.append(.userInput(command))
+    transcriptRevision &+= 1
 
     let input = RemGlkLineInput(
       gen: currentGen,
@@ -145,6 +170,46 @@ final class InterpreterSession {
       try await readNextUpdate()
     } catch {
       lastError = "send failed: \(error)"
+    }
+  }
+
+  /// Sends a single Glk character event. Used when the interpreter
+  /// requested character input via `glk_request_char_event` — common for
+  /// "press any key", y/n prompts, and menu single-digit selection.
+  ///
+  /// `value` is either a single character (`"y"`, `" "`, `"5"`) or one of
+  /// RemGlk's special-key names (`"return"`, `"escape"`, `"left"`, etc.).
+  func sendCharacter(_ value: String) async {
+    guard inputMode == .char else { return }
+    inputMode = nil
+
+    transcript.append(.userInput(displayLabel(forKey: value)))
+    transcriptRevision &+= 1
+
+    let input = RemGlkCharInput(
+      gen: currentGen,
+      window: currentWindow,
+      value: value
+    )
+    do {
+      try writeJSON(input)
+      try await readNextUpdate()
+    } catch {
+      lastError = "send failed: \(error)"
+    }
+  }
+
+  /// Turns a Glk character-input value into a user-readable echo for the
+  /// transcript. The empty / space / control-key values would otherwise
+  /// echo as invisible glyphs.
+  private func displayLabel(forKey value: String) -> String {
+    switch value {
+    case " ": return "[SPACE]"
+    case "return": return "[RETURN]"
+    case "escape": return "[ESC]"
+    case "tab": return "[TAB]"
+    case "delete": return "[DEL]"
+    default: return value
     }
   }
 
@@ -276,10 +341,13 @@ final class InterpreterSession {
     if let inputReq = update.input?.first(where: { $0.type == .line || $0.type == .char }) {
       currentGen = inputReq.gen ?? (update.gen ?? currentGen)
       currentWindow = inputReq.id
-      isAwaitingInput = true
+      inputMode = inputReq.type
     } else {
       currentGen = update.gen ?? currentGen
+      inputMode = nil
     }
+
+    transcriptRevision &+= 1
   }
 }
 
@@ -293,51 +361,6 @@ enum InterpreterError: Error, CustomStringConvertible {
     case .unknownFormat: "Story file format not recognized."
     case .pipeBroken: "Interpreter I/O pipe closed unexpectedly."
     case .loadFailed: "Failed to load story file."
-    }
-  }
-}
-
-/// Brace-counting scanner that collects bytes until one complete top-level
-/// JSON object has been read. Handles quoted strings and escape sequences so
-/// braces inside strings don't confuse the depth counter. RemGlk pretty-prints
-/// its JSON with embedded newlines, so we can't simply split on `\n`.
-private struct JSONStanzaParser {
-  private static let whitespace: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0D]
-
-  private var depth = 0
-  private var inString = false
-  private var escape = false
-  private var collected = Data()
-
-  mutating func consume(_ byte: UInt8) -> Data? {
-    if depth == 0 && collected.isEmpty && Self.whitespace.contains(byte) {
-      return nil
-    }
-    collected.append(byte)
-
-    if inString {
-      consumeInString(byte)
-      return nil
-    }
-
-    switch byte {
-    case 0x22: inString = true        // opening quote
-    case 0x7B: depth += 1             // {
-    case 0x7D:                        // }
-      depth -= 1
-      if depth == 0 { return collected }
-    default: break
-    }
-    return nil
-  }
-
-  private mutating func consumeInString(_ byte: UInt8) {
-    if escape {
-      escape = false
-    } else if byte == 0x5C {          // backslash
-      escape = true
-    } else if byte == 0x22 {          // closing quote
-      inString = false
     }
   }
 }

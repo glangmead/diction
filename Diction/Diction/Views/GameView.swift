@@ -1,10 +1,20 @@
 import SwiftUI
 
+// Coordinates transcript rendering, two input-bar variants, voice-mode
+// lifecycle, opening narration, contextual-strings composition, and the
+// unified input dispatch. Splitting these would either need a separate
+// `@Observable` controller (worth doing once voice features stabilize) or
+// scattered helper structs the View has to plumb data into.
+// swiftlint:disable:next type_body_length
 struct GameView: View {
   let storyFile: StoryFile
 
   @State private var session = InterpreterSession()
   @State private var commandText = ""
+  /// Separate from `commandText` because the char-input field auto-submits
+  /// on every character and we don't want that behavior leaking into the
+  /// line-input field when the mode flips back.
+  @State private var charInputText = ""
   @State private var isVoiceMode = false
   @State private var isLoading = true
   @State private var loadError: String?
@@ -83,53 +93,48 @@ struct GameView: View {
               .padding()
           }
           ForEach(session.transcript) { entry in
-            styledTextView(entry)
+            StyledTextLineView(entry: entry)
               .id(entry.id)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
+          // Zero-height anchor at the true end of the LazyVStack. Scrolling
+          // to this stable id always lands at the bottom, even when the
+          // last entry's height is still being computed.
+          Color.clear
+            .frame(height: 1)
+            .id(Self.bottomAnchorID)
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
       }
-      .onChange(of: session.transcript.count) {
-        if let last = session.transcript.last {
+      .onChange(of: session.transcriptRevision) {
+        // Defer one runloop tick so LazyVStack has a chance to lay out
+        // any newly-appended (or in-place-merged) content before we
+        // measure where the bottom actually is.
+        Task { @MainActor in
+          try? await Task.sleep(for: .milliseconds(16))
           withAnimation {
-            proxy.scrollTo(last.id, anchor: .bottom)
+            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
           }
         }
       }
     }
   }
 
-  private func styledTextView(_ text: StyledText) -> some View {
-    text.runs.reduce(Text("")) { result, run in
-      result + styledRun(run)
-    }
-    .font(.system(.body, design: .monospaced))
-    .foregroundStyle(Color(white: 0.92))
-    .accessibilityLabel(text.plainText)
-  }
-
-  private func styledRun(_ run: StyledText.Run) -> Text {
-    var text = Text(run.text)
-    switch run.style {
-    case .header, .subheader:
-      text = text.bold()
-    case .emphasized:
-      text = text.italic()
-    case .input:
-      text = text.foregroundColor(.gray)
-    case .alert, .note:
-      text = text.foregroundColor(.orange)
-    default:
-      break
-    }
-    return text
-  }
+  private static let bottomAnchorID = "diction-transcript-bottom"
 
   // MARK: - Input bar
 
+  @ViewBuilder
   private var inputBar: some View {
+    if session.inputMode == .char {
+      charInputBar
+    } else {
+      lineInputBar
+    }
+  }
+
+  private var lineInputBar: some View {
     HStack(spacing: 8) {
       Text(">")
         .font(.system(.body, design: .monospaced))
@@ -140,9 +145,46 @@ struct GameView: View {
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .focused($inputFocused)
-        .onSubmit { sendCommand() }
+        .onSubmit { sendInput(commandText) }
         .submitLabel(.send)
         .accessibilityLabel("Enter command")
+      if isVoiceMode {
+        listenButton
+      }
+    }
+    .padding(.horizontal)
+    .padding(.vertical, 8)
+    .background(Color(white: 0.12))
+  }
+
+  /// Shown when the interpreter is blocked on a single-keypress input
+  /// (`glk_request_char_event`). The text field auto-submits on every
+  /// keystroke so the user doesn't have to hit return; the "Continue"
+  /// button covers the common "press SPACE to begin" case without
+  /// requiring the keyboard at all.
+  private var charInputBar: some View {
+    HStack(spacing: 8) {
+      Text("Key:")
+        .font(.system(.body, design: .monospaced))
+        .foregroundStyle(.gray)
+      TextField("y / n / 1 / …", text: $charInputText)
+        .font(.system(.body, design: .monospaced))
+        .foregroundStyle(Color(white: 0.9))
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .focused($inputFocused)
+        .accessibilityLabel("Press a single key")
+        .onChange(of: charInputText) { _, new in
+          guard let first = new.first else { return }
+          let key = String(first)
+          charInputText = ""
+          sendInput(key)
+        }
+      Button("Continue") {
+        sendInput(" ")
+      }
+      .buttonStyle(.borderedProminent)
+      .accessibilityHint("Sends space; the most common 'press any key' answer.")
       if isVoiceMode {
         listenButton
       }
@@ -172,10 +214,25 @@ struct GameView: View {
 
   // MARK: - Actions
 
-  private func sendCommand() {
-    let command = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !command.isEmpty else { return }
-    commandText = ""
+  /// Commands that swap in a different game state. Most Infocom-era
+  /// Z-machine games don't auto-clear the buffer on these, so the visible
+  /// log piles up the old play history under the new state and the
+  /// synthesizer would otherwise narrate the entire pre-restore log.
+  private static let stateResetCommands: Set<String> = [
+    "restore", "restart", "load", "load game"
+  ]
+
+  /// Single entry point for getting any input — text or voice, line or
+  /// char — to the interpreter. Handles the choice of `session.send` vs
+  /// `session.sendCharacter`, voice-mode mic suspension, state-reset
+  /// trimming, and response narration.
+  private func sendInput(_ rawInput: String, fromVoice: Bool = false) {
+    guard let mode = session.inputMode else { return }
+    let payload = preparePayload(rawInput, mode: mode, fromVoice: fromVoice)
+    guard !payload.isEmpty else { return }
+
+    let isStateReset = (mode == .line)
+      && Self.stateResetCommands.contains(payload.lowercased())
 
     // Capture voice-mode state synchronously so toggling voice mode mid-
     // response doesn't leave the recognizer suspended.
@@ -185,23 +242,82 @@ struct GameView: View {
     }
 
     Task {
-      let indexBefore = session.transcript.count
-      await session.send(command)
-      if voiceCoordinated {
-        // RESTORE / RESTART clear the transcript and redraw — if the new
-        // count is shorter than where we started, the response is the
-        // entire fresh game state. Stay silent in that case; the user
-        // can say "look" if they want to hear where they ended up.
-        if session.transcript.count >= indexBefore {
-          let responseEntries = session.transcript[indexBefore...]
-            .filter { !$0.isUserInput }
-          for entry in responseEntries {
-            await synthesizer.speak(entry)
-          }
-        }
-        recognizer.setExternallySuspended(false)
-      }
+      await dispatchAndNarrate(
+        payload: payload,
+        mode: mode,
+        isStateReset: isStateReset,
+        voiceCoordinated: voiceCoordinated
+      )
     }
+  }
+
+  private func preparePayload(
+    _ rawInput: String,
+    mode: RemGlkUpdate.InputType,
+    fromVoice: Bool
+  ) -> String {
+    switch mode {
+    case .line:
+      let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !trimmed.isEmpty { commandText = "" }
+      return trimmed
+    case .char:
+      charInputText = ""
+      return fromVoice
+        ? Self.characterFromUtterance(rawInput)
+        : String(rawInput.first ?? " ")
+    }
+  }
+
+  private func dispatchAndNarrate(
+    payload: String,
+    mode: RemGlkUpdate.InputType,
+    isStateReset: Bool,
+    voiceCoordinated: Bool
+  ) async {
+    let indexBefore = session.transcript.count
+    switch mode {
+    case .line: await session.send(payload)
+    case .char: await session.sendCharacter(payload)
+    }
+
+    // Capture the response slice BEFORE we trim, so we know what was
+    // freshly added (even if we then collapse the visible log).
+    let grew = session.transcript.count >= indexBefore
+    let responseEntries = grew
+      ? Array(session.transcript[indexBefore...].filter { !$0.isUserInput })
+      : []
+
+    // Visually collapse the log on state reset so the user only sees the
+    // post-restore room state, not the pre-save play history.
+    if isStateReset && grew {
+      session.trimTranscript(keepingSuffix: session.transcript.count - indexBefore)
+    }
+
+    if voiceCoordinated {
+      if !isStateReset {
+        for entry in responseEntries {
+          await synthesizer.speak(entry)
+        }
+      }
+      recognizer.setExternallySuspended(false)
+    }
+  }
+
+  /// Maps a free-form spoken utterance to a single Glk character-input
+  /// value. Heuristic but covers the cases that actually occur: "press
+  /// SPACE", y/n prompts, "press return / enter", and single-letter
+  /// menu picks.
+  private static func characterFromUtterance(_ utterance: String) -> String {
+    let lower = utterance.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    if lower.contains("space") { return " " }
+    if lower.contains("return") || lower.contains("enter") { return "return" }
+    if lower.contains("escape") { return "escape" }
+    if lower == "yes" || lower == "y" || lower.hasPrefix("yes ") { return "y" }
+    if lower == "no" || lower == "n" || lower.hasPrefix("no ") { return "n" }
+    // Single-character utterance (recognizer occasionally returns this for
+    // letters/digits) or fall back to the first non-space character.
+    return String(lower.first(where: { !$0.isWhitespace }) ?? " ")
   }
 
   private func toggleVoiceMode() async {
@@ -222,8 +338,7 @@ struct GameView: View {
     recognizer.onUtterance = { @MainActor utterance in
       let trimmed = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !trimmed.isEmpty else { return }
-      commandText = trimmed
-      sendCommand()
+      sendInput(trimmed, fromVoice: true)
     }
     recognizer.startContinuous(contextualStrings: contextualStringsForRecognition())
     narrateOpeningIfNeeded()
