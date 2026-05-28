@@ -1,0 +1,6 @@
+# Vendored sources are fetched by scripts/fetch_sources.sh
+sources/
+
+# Build outputs (XCFrameworks + intermediate object files) are produced by
+# scripts/build_xcframeworks.sh
+build/
