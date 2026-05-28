@@ -39,8 +39,9 @@ BOCFEL_CPP=(
 
 COMMON_CFLAGS="-Os -fvisibility=hidden -Wno-implicit-function-declaration -Wno-unused-result -Wno-deprecated-declarations"
 REMGLK_INCLUDE="-I$SOURCES/remglk"
-GLULXE_DEFINES="-DOS_UNIX -DUNIX_RAND_ARC4"
-BOCFEL_DEFINES="-DZTERP_GLK -DZTERP_GLK_UNIX -DZTERP_GLK_BLORB -DZTERP_OS_UNIX"
+EXIT_RENAME="-Dglk_exit=bridge_glk_exit"
+GLULXE_DEFINES="-DOS_UNIX -DUNIX_RAND_ARC4 $EXIT_RENAME"
+BOCFEL_DEFINES="-DZTERP_GLK -DZTERP_GLK_UNIX -DZTERP_GLK_BLORB -DZTERP_OS_UNIX $EXIT_RENAME"
 
 build_remglk_objects() {
   local arch="$1" sdk="$2" outdir="$3" extra_defines="$4" cc

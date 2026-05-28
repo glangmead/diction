@@ -1,27 +1,25 @@
 /* Replaces RemGlk's main() with a function that takes a story file path
- * and runs the interpreter in-process. This bridge file is compiled into
- * each interpreter's XCFramework alongside RemGlk's other source files
- * (with main.c excluded).
+ * and runs the interpreter in-process. Compiled into each interpreter's
+ * XCFramework alongside RemGlk's other source files (with main.c excluded).
  *
- * Caller responsibilities:
- *  - Set up stdin/stdout pipes (e.g. via dup2) before invoking the run function
- *  - Read RemGlk JSON from the pipe connected to stdout
- *  - Write RemGlk JSON to the pipe connected to stdin
+ * The interpreter normally terminates by calling glk_exit(), which in turn
+ * calls exit() — fatal for an iOS host process. We rename glk_exit via -D
+ * and provide our own implementation that longjmps back to the entry point.
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <setjmp.h>
 
 #include "glk.h"
 #include "remglk.h"
 #include "rgdata.h"
 #include "glkstart.h"
 
-/* These globals are required by various RemGlk source files that read them
- * directly. They were defined in main.c. */
+/* main.c globals that other RemGlk sources read directly. */
 int pref_stderr = 0;
-int pref_fixedmetrics = 0;
+int pref_fixedmetrics = 1;
 int pref_autometrics = 0;
 int pref_gamefiledir = 0;
 int pref_onlyfiledir = 0;
@@ -31,7 +29,6 @@ char *pref_resourceurl = NULL;
 int gli_debugger = 0;
 #endif
 
-/* Required entry point declared in main.c — kept here so dependent code links. */
 int gli_get_dataresource_info(int num, void **ptr, glui32 *len, int *isbinary)
 {
     (void)num;
@@ -41,7 +38,6 @@ int gli_get_dataresource_info(int num, void **ptr, glui32 *len, int *isbinary)
     return 0;
 }
 
-/* Required by interpreters that use glkunix_stream_open_pathname. */
 strid_t glkunix_stream_open_pathname_gen(char *pathname, glui32 writemode,
     glui32 textmode, glui32 rock)
 {
@@ -54,24 +50,48 @@ strid_t glkunix_stream_open_pathname(char *pathname, glui32 textmode,
     return gli_stream_open_pathname(pathname, 0, (textmode != 0), rock);
 }
 
-/* The shared entry point. Initializes RemGlk, builds fake argv,
- * invokes glkunix_startup_code (which opens the game file), and runs glk_main.
- */
+/* Replacement for glk_exit (renamed via -Dglk_exit=bridge_glk_exit).
+ * Instead of exit()ing the process, longjmp back to remglk_setup_and_run. */
+static jmp_buf exit_jmp;
+static int exit_jmp_set = 0;
+
+void bridge_glk_exit(void) __attribute__((noreturn));
+void bridge_glk_exit(void)
+{
+    if (exit_jmp_set) {
+        longjmp(exit_jmp, 1);
+    }
+    /* Fallback if called before setjmp — shouldn't happen but exit the
+     * thread cleanly rather than the whole process. pthread_exit is noreturn
+     * in practice but its prototype on Darwin lacks the attribute, so add
+     * __builtin_unreachable to silence the noreturn-returns warning. */
+    pthread_exit(NULL);
+    __builtin_unreachable();
+}
+
 int remglk_setup_and_run(const char *story_path, const char *interpreter_name)
 {
+    fprintf(stderr, "[diction] starting %s for %s\n",
+            interpreter_name, story_path);
+
+    if (setjmp(exit_jmp) != 0) {
+        fprintf(stderr, "[diction] %s exited via glk_exit\n", interpreter_name);
+        exit_jmp_set = 0;
+        return 0;
+    }
+    exit_jmp_set = 1;
+
     data_supportcaps_t supportcaps;
     glkunix_startup_t startdata;
     char *fake_argv[2];
 
     data_supportcaps_clear(&supportcaps);
 
-    /* Build a fake argv: [interpreter_name, story_path]. */
     fake_argv[0] = (char *)interpreter_name;
     fake_argv[1] = (char *)story_path;
     startdata.argc = 2;
     startdata.argv = fake_argv;
 
-    /* Initialize RemGlk subsystems (mirrors RemGlk main.c). */
     gli_initialize_datainput();
     gli_initialize_misc(&supportcaps);
     gli_initialize_windows();
@@ -79,23 +99,23 @@ int remglk_setup_and_run(const char *story_path, const char *interpreter_name)
     gli_initialize_filerefs();
     gli_initialize_events();
 
+    fprintf(stderr, "[diction] calling glkunix_startup_code\n");
     if (!glkunix_startup_code(&startdata)) {
-        glk_exit();
-        return 1;
+        fprintf(stderr, "[diction] glkunix_startup_code returned false\n");
+        bridge_glk_exit();
     }
 
-    /* Set up metrics with defaults — we use fixed metrics since there's no
-     * real terminal. The client may send a real Arrange event later. */
     {
         data_metrics_t *metrics = data_metrics_alloc(80, 50);
-        data_supportcaps_t newcaps;
-        gli_select_metrics(metrics, &newcaps);
-        data_supportcaps_merge(&gli_supportcaps, &newcaps);
+        gli_select_imaginary();
         gli_windows_update_metrics(metrics);
         data_metrics_free(metrics);
     }
 
+    fprintf(stderr, "[diction] entering glk_main\n");
     glk_main();
-    glk_exit();
+    fprintf(stderr, "[diction] glk_main returned\n");
+
+    exit_jmp_set = 0;
     return 0;
 }
