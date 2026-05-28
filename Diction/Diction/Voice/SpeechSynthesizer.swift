@@ -29,10 +29,10 @@ final class SpeechSynthesizer: NSObject {
   /// Speaks the plain text of a styled entry, applying minor prosody from style.
   func speak(_ styledText: StyledText) async {
     for run in styledText.runs {
-      let trimmed = run.text.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !trimmed.isEmpty else { continue }
+      let speakable = Self.cleanForSpeech(run.text)
+      guard !speakable.isEmpty else { continue }
 
-      let utterance = AVSpeechUtterance(string: run.text)
+      let utterance = AVSpeechUtterance(string: speakable)
       utterance.voice = selectedVoice()
       utterance.rate = speechRate
 
@@ -80,6 +80,17 @@ final class SpeechSynthesizer: NSObject {
   private func selectedVoice() -> AVSpeechSynthesisVoice? {
     let id = UserDefaults.standard.string(forKey: "speechVoiceId") ?? ""
     return id.isEmpty ? nil : AVSpeechSynthesisVoice(identifier: id)
+  }
+
+  /// Strips leading/trailing whitespace and parser prompt characters (`>`)
+  /// from text before synthesis. AVSpeechSynthesizer would otherwise
+  /// pronounce ">" as "greater than sign", which is just noise.
+  nonisolated private static let promptCharacters = CharacterSet(charactersIn: ">")
+
+  nonisolated private static func cleanForSpeech(_ text: String) -> String {
+    text.trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: promptCharacters)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private func didFinishUtterance() {

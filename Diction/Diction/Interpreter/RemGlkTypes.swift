@@ -10,6 +10,10 @@ nonisolated struct RemGlkUpdate: Codable, Sendable {
   var input: [InputRequest]?
   var disable: Bool?
   var exit: Bool?
+  /// Present when the interpreter is blocked waiting for a fileref dialog
+  /// (save / restore / transcript / command-record / data resource). The
+  /// host must respond with a `RemGlkSpecialResponse` carrying a file path.
+  var specialinput: SpecialRequest?
 
   struct Window: Codable, Sendable {
     var id: Int
@@ -108,6 +112,29 @@ nonisolated struct RemGlkUpdate: Codable, Sendable {
     case line
     case char
   }
+
+  struct SpecialRequest: Codable, Sendable {
+    /// Always "fileref_prompt" in current RemGlk. Decoded leniently so an
+    /// unknown future variant doesn't crash; the responder checks it.
+    var type: String
+    var filemode: FileMode
+    var filetype: FileType
+    var gameid: String?
+  }
+
+  enum FileMode: String, Codable, Sendable {
+    case read
+    case write
+    case readwrite
+    case writeappend
+  }
+
+  enum FileType: String, Codable, Sendable {
+    case save
+    case transcript
+    case command
+    case data
+  }
 }
 
 /// JSON payload we send back to the interpreter for line input.
@@ -124,6 +151,16 @@ nonisolated struct RemGlkCharInput: Codable, Sendable {
   var gen: Int
   var window: Int
   var value: String
+}
+
+/// JSON payload sent back to RemGlk in response to a `fileref_prompt`
+/// special input. `value` is the absolute path the game should read/write,
+/// or `nil` to indicate the user cancelled the dialog.
+nonisolated struct RemGlkSpecialResponse: Codable, Sendable {
+  var type: String = "specialresponse"
+  var gen: Int
+  var response: String = "fileref_prompt"
+  var value: String?
 }
 
 /// JSON payload for window arrangement (sent on init to set metrics).

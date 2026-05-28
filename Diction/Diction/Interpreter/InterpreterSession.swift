@@ -28,6 +28,10 @@ final class InterpreterSession {
   /// Detected format of the loaded story file.
   private(set) var format: StoryFormat?
 
+  /// Stable per-game identifier used to scope save files, transcripts,
+  /// command records, and data resources on disk.
+  private(set) var gameID: String = ""
+
   /// Held so their underlying fds stay valid for the session's lifetime.
   /// Foundation's `Pipe` closes its fds on dealloc.
   private var toPipe: Pipe?
@@ -42,6 +46,12 @@ final class InterpreterSession {
   private var pipeReadBuffer = Data()
   private var currentGen = 1
   private var currentWindow = 0
+
+  /// Cached window-id → window-type map, populated from each update's
+  /// `windows` array. Lets us distinguish the buffer (where the prose
+  /// lives) from grids (status line, which clears every turn) so we only
+  /// honor `clear` flags on the buffer.
+  private var windowTypes: [Int: RemGlkUpdate.WindowType] = [:]
 
   /// Saved real stdin/stdout file descriptors so we can restore them on tear-down.
   /// nonisolated because `deinit` runs in an unspecified isolation context.
@@ -65,7 +75,12 @@ final class InterpreterSession {
       throw InterpreterError.unknownFormat
     }
     format = detected
+    gameID = SaveStorage.gameID(for: storyURL)
     dictionary = (try? DictionaryExtractor.extract(from: storyURL)) ?? []
+
+    let sortedDict = dictionary.sorted().joined(separator: ", ")
+    let dictMsg = "[diction-dict] \(gameID) — \(dictionary.count) words: \(sortedDict)\n"
+    FileHandle.standardError.write(Data(dictMsg.utf8))
 
     let toPipe = Pipe()
     let fromPipe = Pipe()
@@ -167,12 +182,39 @@ final class InterpreterSession {
   /// Read bytes from the interpreter until we have one complete JSON object.
   /// RemGlk outputs each update as a single self-contained JSON object with
   /// no trailing newline guarantee, so we track brace depth across reads.
+  ///
+  /// If the update carries a `specialinput` (fileref dialog), we
+  /// auto-respond with an appropriate path and recurse to read the
+  /// interpreter's continuation. This is what makes `save` / `restore` /
+  /// `script` work without a user-visible file picker.
   private func readNextUpdate() async throws {
     let data = try await readOneJSONObject()
     guard !data.isEmpty else { return }
 
     let update = try JSONDecoder().decode(RemGlkUpdate.self, from: data)
     apply(update)
+
+    if let special = update.specialinput {
+      try await respondToFileref(special, gen: update.gen ?? currentGen)
+      try await readNextUpdate()
+    }
+  }
+
+  /// Resolves an autosave-style path for the requested fileref and writes
+  /// a `specialresponse` back to the interpreter. Returning `value: nil`
+  /// tells the game the user cancelled — used when a read request asks
+  /// for a file that doesn't exist yet.
+  private func respondToFileref(
+    _ request: RemGlkUpdate.SpecialRequest,
+    gen: Int
+  ) async throws {
+    let path = SaveStorage.resolvePath(
+      gameID: gameID,
+      filetype: request.filetype,
+      mode: request.filemode
+    )
+    let response = RemGlkSpecialResponse(gen: gen, value: path)
+    try writeJSON(response)
   }
 
   private func readOneJSONObject() async throws -> Data {
@@ -201,8 +243,22 @@ final class InterpreterSession {
   }
 
   private func apply(_ update: RemGlkUpdate) {
+    if let windows = update.windows {
+      for window in windows {
+        windowTypes[window.id] = window.type
+      }
+    }
+
     if let content = update.content {
       for window in content {
+        // RESTORE / RESTART blow away the buffer and redraw the current
+        // state. Without clearing our transcript here, the old play
+        // history piles up under the new state and the voice reads it
+        // all back. Grid clears (status line) are a per-turn no-op and
+        // must not trigger a transcript wipe.
+        if window.clear == true && windowTypes[window.id] == .buffer {
+          transcript.removeAll()
+        }
         guard let lines = window.text else { continue }
         for line in lines {
           guard let runs = line.content, !runs.isEmpty else { continue }

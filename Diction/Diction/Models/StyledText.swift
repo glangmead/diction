@@ -32,7 +32,13 @@ extension StyledText {
   /// A "user typed this" entry, displayed inline in the transcript.
   static func userInput(_ command: String) -> StyledText {
     StyledText(runs: [
-      Run(text: "> \(command)\n", style: .input),
+      Run(text: "> \(command)\n", style: .input)
     ])
+  }
+
+  /// True for entries created via `userInput(_:)`. Used by views that want
+  /// to slice the transcript into "command + response" chunks.
+  var isUserInput: Bool {
+    runs.allSatisfy { $0.style == .input }
   }
 }

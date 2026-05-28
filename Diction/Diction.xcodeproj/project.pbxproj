@@ -17,9 +17,22 @@
 		9B100002AAAAAAAAAAAAAAAA /* Glulxe.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Glulxe.xcframework; path = Interpreters/build/Glulxe.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9B044BC22FC8B7D80031B65E /* Exceptions for "Diction" folder in "Diction" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9B044AEA2FC7A44D0031B65E /* Diction */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9B044AED2FC7A44D0031B65E /* Diction */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9B044BC22FC8B7D80031B65E /* Exceptions for "Diction" folder in "Diction" target */,
+			);
 			path = Diction;
 			sourceTree = "<group>";
 		};
@@ -268,7 +281,7 @@
 		9B044AF72FC7A44E0031B65E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = Diction;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -283,6 +296,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Interpreters/bridge",
 				);
+				INFOPLIST_FILE = Diction/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diction listens to your voice commands while playing.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Diction transcribes your voice into game commands.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -315,7 +329,7 @@
 		9B044AF82FC7A44E0031B65E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = Diction;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -330,6 +344,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Interpreters/bridge",
 				);
+				INFOPLIST_FILE = Diction/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diction listens to your voice commands while playing.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Diction transcribes your voice into game commands.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

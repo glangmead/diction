@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UIKit
 
 struct SettingsView: View {
   @Environment(\.dismiss) private var dismiss
@@ -8,52 +9,18 @@ struct SettingsView: View {
   )
   @AppStorage("speechVoiceId") private var voiceId: String = ""
 
-  private let voices: [AVSpeechSynthesisVoice] = AVSpeechSynthesisVoice
-    .speechVoices()
-    .filter { $0.language.hasPrefix("en") }
-    .sorted { $0.name < $1.name }
+  /// Count of currently-installed Premium voices, used to surface whether
+  /// the user has installed any of Apple's higher-quality voices.
+  private let installedPremiumCount: Int = AVSpeechSynthesisVoice.speechVoices()
+    .filter { $0.language.hasPrefix("en") && $0.quality == .premium }
+    .count
 
   var body: some View {
     NavigationStack {
       Form {
-        Section("Speech") {
-          VStack(alignment: .leading, spacing: 8) {
-            HStack {
-              Text("Rate")
-              Spacer()
-              Text(rateLabel)
-                .foregroundStyle(.secondary)
-                .font(.callout.monospacedDigit())
-            }
-            Slider(
-              value: $speechRate,
-              in: Double(AVSpeechUtteranceMinimumSpeechRate)...Double(AVSpeechUtteranceMaximumSpeechRate),
-              step: 0.05
-            )
-            .accessibilityLabel("Speech rate")
-            .accessibilityValue(rateLabel)
-          }
-
-          Picker("Voice", selection: $voiceId) {
-            Text("System Default").tag("")
-            ForEach(voices, id: \.identifier) { voice in
-              Text("\(voice.name) (\(voice.quality.label))")
-                .tag(voice.identifier)
-            }
-          }
-        }
-
-        Section("About") {
-          LabeledContent("Z-machine interpreter") {
-            Text("Bocfel (MIT)").foregroundStyle(.secondary)
-          }
-          LabeledContent("Glulx interpreter") {
-            Text("Glulxe (MIT)").foregroundStyle(.secondary)
-          }
-          LabeledContent("Glk implementation") {
-            Text("RemGlk (MIT)").foregroundStyle(.secondary)
-          }
-        }
+        speechSection
+        moreVoicesSection
+        aboutSection
       }
       .navigationTitle("Settings")
       .toolbar {
@@ -64,11 +31,205 @@ struct SettingsView: View {
     }
   }
 
+  // MARK: - Speech section
+
+  private var speechSection: some View {
+    Section("Speech") {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack {
+          Text("Rate")
+          Spacer()
+          Text(rateLabel)
+            .foregroundStyle(.secondary)
+            .font(.callout.monospacedDigit())
+        }
+        Slider(
+          value: $speechRate,
+          in: Double(AVSpeechUtteranceMinimumSpeechRate)...Double(AVSpeechUtteranceMaximumSpeechRate),
+          step: 0.05
+        )
+        .accessibilityLabel("Speech rate")
+        .accessibilityValue(rateLabel)
+      }
+
+      NavigationLink {
+        VoicePickerView(selectedVoiceId: $voiceId)
+      } label: {
+        LabeledContent("Voice") {
+          Text(currentVoiceLabel)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+  }
+
+  private var currentVoiceLabel: String {
+    if voiceId.isEmpty { return "System Default" }
+    guard let voice = AVSpeechSynthesisVoice(identifier: voiceId) else {
+      return "System Default"
+    }
+    return "\(voice.name) (\(voice.quality.label))"
+  }
+
+  // MARK: - More voices section
+
+  private var moreVoicesSection: some View {
+    Section {
+      LabeledContent("Premium voices installed") {
+        Text("\(installedPremiumCount)")
+          .foregroundStyle(.secondary)
+      }
+
+      Text(moreVoicesExplanation)
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Button {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+          UIApplication.shared.open(url)
+        }
+      } label: {
+        Label("Open Settings", systemImage: "gear")
+      }
+    } header: {
+      Text("More Voices")
+    } footer: {
+      Text("iOS does not allow apps to install voices directly; the Settings app handles the download.")
+    }
+  }
+
+  private var moreVoicesExplanation: String {
+    """
+    iOS includes higher-quality 'Enhanced' and 'Premium' voices that aren't \
+    installed by default. To add them: open the Settings app, then go to \
+    Accessibility → Spoken Content → Voices → English. Tap any voice marked \
+    Enhanced or Premium to download it. Once installed, it will appear in \
+    the Voice picker above.
+    """
+  }
+
+  // MARK: - About
+
+  private var aboutSection: some View {
+    Section("About") {
+      LabeledContent("Z-machine interpreter") {
+        Text("Bocfel (MIT)").foregroundStyle(.secondary)
+      }
+      LabeledContent("Glulx interpreter") {
+        Text("Glulxe (MIT)").foregroundStyle(.secondary)
+      }
+      LabeledContent("Glk implementation") {
+        Text("RemGlk (MIT)").foregroundStyle(.secondary)
+      }
+    }
+  }
+
   private var rateLabel: String {
     let normalized = (speechRate - Double(AVSpeechUtteranceMinimumSpeechRate))
       / Double(AVSpeechUtteranceMaximumSpeechRate - AVSpeechUtteranceMinimumSpeechRate)
     let percent = Int((normalized * 100).rounded())
     return "\(percent)%"
+  }
+}
+
+// MARK: - Voice picker
+
+/// Drill-down voice picker grouped by quality (Premium first), with locale
+/// labels so the user can pick an accent. Lives in its own view so the
+/// list scrolls comfortably even when many voices are installed.
+private struct VoicePickerView: View {
+  @Binding var selectedVoiceId: String
+  @Environment(\.dismiss) private var dismiss
+
+  private let groupedVoices: [VoiceGroup]
+
+  init(selectedVoiceId: Binding<String>) {
+    self._selectedVoiceId = selectedVoiceId
+    let englishVoices = AVSpeechSynthesisVoice.speechVoices()
+      .filter { $0.language.hasPrefix("en") }
+    let byQuality = Dictionary(grouping: englishVoices, by: \.quality)
+    // Premium first so the highest-quality options are easiest to find.
+    self.groupedVoices = [
+      AVSpeechSynthesisVoiceQuality.premium,
+      .enhanced,
+      .default
+    ].compactMap { quality in
+      guard let voices = byQuality[quality], !voices.isEmpty else { return nil }
+      return VoiceGroup(
+        quality: quality,
+        voices: voices.sorted { $0.name < $1.name }
+      )
+    }
+  }
+
+  var body: some View {
+    List {
+      Section {
+        Button {
+          selectedVoiceId = ""
+          dismiss()
+        } label: {
+          voiceRowLabel(
+            primary: "System Default",
+            secondary: "Whatever iOS picks for your region",
+            isSelected: selectedVoiceId.isEmpty
+          )
+        }
+        .buttonStyle(.plain)
+      }
+
+      ForEach(groupedVoices) { group in
+        Section(group.quality.label) {
+          ForEach(group.voices, id: \.identifier) { voice in
+            Button {
+              selectedVoiceId = voice.identifier
+              dismiss()
+            } label: {
+              voiceRowLabel(
+                primary: voice.name,
+                secondary: VoicePickerView.localeName(voice.language),
+                isSelected: voice.identifier == selectedVoiceId
+              )
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+    .navigationTitle("Voice")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+
+  private func voiceRowLabel(primary: String, secondary: String, isSelected: Bool) -> some View {
+    HStack {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(primary)
+          .foregroundStyle(.primary)
+        Text(secondary)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+      if isSelected {
+        Image(systemName: "checkmark")
+          .foregroundStyle(.tint)
+      }
+    }
+    .contentShape(Rectangle())
+  }
+
+  /// Localized display name for a BCP-47 language tag, e.g. "en-AU" →
+  /// "English (Australia)". Falls back to the raw tag if the system can't
+  /// produce a localized name.
+  private static func localeName(_ tag: String) -> String {
+    Locale.current.localizedString(forIdentifier: tag) ?? tag
+  }
+
+  private struct VoiceGroup: Identifiable {
+    let quality: AVSpeechSynthesisVoiceQuality
+    let voices: [AVSpeechSynthesisVoice]
+    var id: Int { quality.rawValue }
   }
 }
 
