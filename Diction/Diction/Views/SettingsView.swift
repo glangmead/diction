@@ -8,6 +8,7 @@ struct SettingsView: View {
     AVSpeechUtteranceDefaultSpeechRate
   )
   @AppStorage("speechVoiceId") private var voiceId: String = ""
+  @AppStorage("wakeWord") private var wakeWord: String = "game"
 
   /// Count of currently-installed Premium voices, used to surface whether
   /// the user has installed any of Apple's higher-quality voices.
@@ -60,7 +61,30 @@ struct SettingsView: View {
             .foregroundStyle(.secondary)
         }
       }
+
+      VStack(alignment: .leading, spacing: 8) {
+        LabeledContent("Wake word") {
+          TextField("game", text: $wakeWord)
+            .multilineTextAlignment(.trailing)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.done)
+            .accessibilityLabel("Wake word")
+        }
+        Text(wakeWordExplanation)
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     }
+  }
+
+  private var wakeWordExplanation: String {
+    let example = wakeWord.isEmpty ? "game" : wakeWord
+    return """
+    Say this before a command to talk to the app instead of the game — \
+    e.g. “\(example), stop”. Short, common, distinct words are recognized best.
+    """
   }
 
   private var currentVoiceLabel: String {
@@ -120,7 +144,7 @@ struct SettingsView: View {
         Text("Glulxe (MIT)").foregroundStyle(.secondary)
       }
       LabeledContent("Glk implementation") {
-        Text("RemGlk (MIT)").foregroundStyle(.secondary)
+        Text("RemGlk-rs (MIT)").foregroundStyle(.secondary)
       }
     }
   }

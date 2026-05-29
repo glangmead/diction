@@ -1,0 +1,70 @@
+import Testing
+@testable import Diction
+
+@MainActor
+@Suite("Dispatch decision")
+struct DispatchDecisionTests {
+  @Test("bare utterance goes to the game when idle")
+  func bareIdle() {
+    #expect(VoiceCoordinator.decide(text: "take lamp", wakeWord: "game", isNarrating: false) == .game)
+  }
+
+  @Test("bare utterance is dropped while narrating")
+  func bareNarrating() {
+    #expect(VoiceCoordinator.decide(text: "take lamp", wakeWord: "game", isNarrating: true) == .ignore)
+  }
+
+  @Test("wake-word stop interrupts even while narrating")
+  func wakeStopNarrating() {
+    #expect(VoiceCoordinator.decide(text: "game stop", wakeWord: "game", isNarrating: true) == .coordinator(.stop))
+  }
+
+  @Test("addressed but unparsed is ignored")
+  func addressedNoMatch() {
+    #expect(VoiceCoordinator.decide(text: "game flibbertigibbet", wakeWord: "game", isNarrating: false) == .ignore)
+  }
+
+  @Test("bare wake word with no command is ignored")
+  func bareWakeWord() {
+    #expect(VoiceCoordinator.decide(text: "game", wakeWord: "game", isNarrating: false) == .ignore)
+  }
+
+  @Test("merged wake word + command (recognizer ran them together) is honored")
+  func mergedWakeCommand() {
+    #expect(VoiceCoordinator.decide(text: "GameStop", wakeWord: "game", isNarrating: true) == .coordinator(.stop))
+  }
+
+  @Test("a real word that merely starts with the wake word still reaches the game")
+  func wakePrefixNotACommand() {
+    #expect(VoiceCoordinator.decide(text: "gamekeeper", wakeWord: "game", isNarrating: false) == .game)
+  }
+
+  @Test("matching is case-insensitive and tolerates punctuation")
+  func caseAndPunctuation() {
+    #expect(
+      VoiceCoordinator.decide(text: "Game, reread", wakeWord: "game", isNarrating: false) == .coordinator(.reread)
+    )
+  }
+
+  @Test("custom wake word is honored")
+  func customWake() {
+    #expect(
+      VoiceCoordinator.decide(text: "computer faster", wakeWord: "computer", isNarrating: false)
+        == .coordinator(.faster)
+    )
+  }
+}
+
+@MainActor
+@Suite("Wake-word normalization")
+struct WakeWordTests {
+  @Test("nil falls back to game") func nilFallback() {
+    #expect(VoiceCoordinator.normalizedWakeWord(nil) == "game")
+  }
+  @Test("empty falls back to game") func emptyFallback() {
+    #expect(VoiceCoordinator.normalizedWakeWord("   ") == "game")
+  }
+  @Test("trims and lowercases") func trimLower() {
+    #expect(VoiceCoordinator.normalizedWakeWord("  GAME ") == "game")
+  }
+}

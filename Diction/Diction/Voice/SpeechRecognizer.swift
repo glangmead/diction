@@ -1,34 +1,27 @@
 import Speech
 import AVFoundation
 
-/// Continuous speech recognition with silence-based end-of-utterance
-/// detection. After ~1.2s of stable partial transcription, the current
-/// utterance is finalized and `onUtterance` is invoked with the recognized
-/// text; capture stops until the caller calls `setExternallySuspended(false)`
-/// (typically after TTS playback finishes).
+/// Continuous speech recognition with echo-cancelled, always-live capture.
 ///
-/// Two independent suspension axes:
-/// - `setUserMuted(_:)` — user tapped the mute button.
-/// - `setExternallySuspended(_:)` — caller is busy (e.g. TTS speaking).
-///
-/// Audio capture runs only while continuous mode is on AND neither axis
-/// is asserted.
+/// In continuous mode the microphone stays open even while the app's own
+/// text-to-speech is playing: Apple's voice-processing I/O unit
+/// (`setVoiceProcessingEnabled`) cancels the synthesizer's audio from the mic
+/// input, so the recognizer hears the user rather than the narration. Each
+/// utterance is finalized after ~1.2s of stable transcription and delivered via
+/// `onUtterance`; the next capture cycle starts immediately, so listening is
+/// continuous with no caller-driven suspend/resume.
 @Observable
 @MainActor
 final class SpeechRecognizer {
-  /// Live updated transcription text while listening.
+  /// Live transcription text while listening.
   private(set) var transcription = ""
 
-  /// True while the audio engine is capturing (a single recognition cycle).
+  /// True while a recognition cycle is capturing.
   private(set) var isListening = false
-
-  /// User-controlled mute. Visible to the UI so the mic button can reflect it.
-  private(set) var isUserMuted = false
 
   private(set) var errorMessage: String?
 
-  /// Called when continuous mode detects a complete utterance.
-  /// Set before invoking `startContinuous`. Runs on the MainActor.
+  /// Called when a complete utterance is detected. Set before `startContinuous`.
   var onUtterance: ((String) -> Void)?
 
   private let recognizer: SFSpeechRecognizer?
@@ -37,12 +30,6 @@ final class SpeechRecognizer {
   private var task: SFSpeechRecognitionTask?
 
   private var inContinuous = false
-  private var isExternallySuspended = false
-
-  /// Called at the start of every capture cycle to get the contextual
-  /// strings for `SFSpeechRecognizer`. Closure form (rather than a stored
-  /// `[String]`) lets the caller refresh the biasing list per utterance
-  /// — e.g., to fold in vocabulary from the most recent game responses.
   private var contextualStringsProvider: (@MainActor () -> [String])?
 
   private var silenceTask: Task<Void, Never>?
@@ -61,92 +48,86 @@ final class SpeechRecognizer {
       }
     }
     guard speech else { return false }
-
     let mic = await AVAudioApplication.requestRecordPermission()
     return mic
   }
 
   // MARK: - Continuous mode
 
-  /// Enter continuous mode. The provider closure is called fresh at the
-  /// start of every capture cycle, so the recognizer's biasing list can
-  /// adapt as the game state evolves (e.g., new room descriptions
-  /// introduce new vocabulary).
+  /// Enter continuous mode: configure the session, enable voice processing,
+  /// start the engine, and begin the first capture cycle. The provider is
+  /// called fresh at the start of every cycle so biasing adapts to game state.
   func startContinuous(contextualStringsProvider: @MainActor @escaping () -> [String]) {
+    guard !inContinuous else { return }
     inContinuous = true
     self.contextualStringsProvider = contextualStringsProvider
-    reconcile()
-  }
-
-  /// Leave continuous mode. Releases the audio session and clears the
-  /// transient external-suspension flag so a subsequent `startContinuous`
-  /// gets a clean slate (user-mute is preserved as a sticky preference).
-  func stopContinuous() {
-    inContinuous = false
-    isExternallySuspended = false
-    contextualStringsProvider = nil
-    silenceTask?.cancel()
-    stopCaptureInternal()
-  }
-
-  func setUserMuted(_ muted: Bool) {
-    isUserMuted = muted
-    reconcile()
-  }
-
-  /// Used by the caller (e.g., GameView) to pause capture while TTS plays.
-  func setExternallySuspended(_ suspended: Bool) {
-    isExternallySuspended = suspended
-    reconcile()
-  }
-
-  // MARK: - State machine
-
-  private var canCapture: Bool {
-    inContinuous && !isUserMuted && !isExternallySuspended
-  }
-
-  private func reconcile() {
-    if canCapture && !isListening {
-      do {
-        try startCaptureCycle()
-      } catch {
-        errorMessage = "Speech start failed: \(error)"
-      }
-    } else if !canCapture && isListening {
-      silenceTask?.cancel()
-      stopCaptureInternal()
+    do {
+      try startEngine()
+      beginCycle()
+    } catch {
+      errorMessage = "Speech start failed: \(error)"
+      inContinuous = false
     }
   }
 
-  private func startCaptureCycle() throws {
+  /// Leave continuous mode and release the engine and audio session.
+  func stopContinuous() {
+    inContinuous = false
+    contextualStringsProvider = nil
+    silenceTask?.cancel()
+    audioEngine?.inputNode.removeTap(onBus: 0)
+    request?.endAudio()
+    task?.finish()
+    request = nil
+    task = nil
+    audioEngine?.stop()
+    audioEngine = nil
+    isListening = false
+  }
+
+  // MARK: - Engine + cycle lifecycle
+
+  private func startEngine() throws {
     guard let recognizer, recognizer.isAvailable else {
       errorMessage = "Speech recognition not available"
-      return
+      throw CocoaError(.featureUnsupported)
     }
     errorMessage = nil
 
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(
-      .playAndRecord,
-      mode: .measurement,
-      options: [.duckOthers, .defaultToSpeaker]
-    )
+    // Voice processing supplies echo cancellation; it needs a voice-oriented
+    // mode, not `.measurement` (which strips the processing). VPIO cancels our
+    // own TTS from the mic even though the synthesizer plays outside this engine.
+    try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker])
     try session.setActive(true, options: .notifyOthersOnDeactivation)
+
+    let engine = AVAudioEngine()
+    let input = engine.inputNode
+    // Enable echo cancellation BEFORE reading the input format (enabling it
+    // changes the node's format).
+    //
+    // We deliberately do NOT set `voiceProcessingOtherAudioDuckingConfiguration`:
+    // the device spike showed VPIO's *default* ducking lowers our narration when
+    // the user speaks just enough for the recognizer to finalize the user's
+    // command mid-narration. Setting `enableAdvancedDucking: true` (any level)
+    // suppressed that ducking entirely, so the user's barge-in never finalized.
+    try input.setVoiceProcessingEnabled(true)
+
+    engine.prepare()
+    try engine.start()
+    audioEngine = engine
+  }
+
+  /// Start one recognition cycle on the already-running engine. The tap
+  /// captures a fresh `req` local (concurrency-safe on the audio thread);
+  /// recycling per utterance keeps capture continuous without stopping VPIO.
+  private func beginCycle() {
+    guard let recognizer, let engine = audioEngine else { return }
 
     let req = SFSpeechAudioBufferRecognitionRequest()
     req.shouldReportPartialResults = true
-    // Refresh contextual strings each cycle so per-utterance biasing
-    // (e.g., nouns harvested from the most recent room description) can
-    // evolve as the game state changes. Apple's docs don't publish a
-    // hard limit, but ~1000 strings is the commonly cited practical
-    // ceiling.
-    let strings = contextualStringsProvider?() ?? []
-    let cappedContext = Array(strings.prefix(1000))
+    let cappedContext = Array((contextualStringsProvider?() ?? []).prefix(1000))
     req.contextualStrings = cappedContext
-    // Tell the recognizer to expect short, command-style utterances. This
-    // shifts its language model away from free-dictation priors that prefer
-    // common English over IF-specific monosyllables like "west" vs "wet".
     req.taskHint = .search
     if recognizer.supportsOnDeviceRecognition {
       req.requiresOnDeviceRecognition = true
@@ -157,17 +138,12 @@ final class SpeechRecognizer {
     let contextMsg = "[diction-dict] contextualStrings (\(cappedContext.count)): \(joined)\n"
     FileHandle.standardError.write(Data(contextMsg.utf8))
 
-    let engine = AVAudioEngine()
-    self.audioEngine = engine
-
     let input = engine.inputNode
+    input.removeTap(onBus: 0)
     let format = input.outputFormat(forBus: 0)
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
       req.append(buffer)
     }
-
-    engine.prepare()
-    try engine.start()
 
     transcription = ""
     isListening = true
@@ -200,8 +176,8 @@ final class SpeechRecognizer {
     }
   }
 
-  /// Cancels any in-flight silence timer and starts a new one. When it
-  /// fires uncancelled, the user is considered done talking.
+  /// Cancels any in-flight silence timer and starts a new one. When it fires
+  /// uncancelled, the user is considered done talking.
   private func scheduleSilenceCheck() {
     silenceTask?.cancel()
     let interval = silenceInterval
@@ -218,33 +194,29 @@ final class SpeechRecognizer {
     guard isListening,
           !transcription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else { return }
-    // Asks the recognizer to deliver isFinal=true; handleRecognitionEvent
-    // will route to endCycle.
     request?.endAudio()
   }
 
+  /// End one cycle and immediately start the next while the engine keeps
+  /// running, so the mic is live continuously — including during narration.
   private func endCycle(emitFinal: Bool) {
     silenceTask?.cancel()
     let final = transcription
-    stopCaptureInternal()
+    audioEngine?.inputNode.removeTap(onBus: 0)
+    request?.endAudio()
+    task?.finish()
+    request = nil
+    task = nil
 
     if emitFinal,
        !final.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       onUtterance?(final)
     }
-    // Capture does not auto-restart here. The caller is expected to
-    // process the utterance, play TTS, and toggle externally-suspended
-    // to bring the next cycle up via `reconcile()`.
-  }
 
-  private func stopCaptureInternal() {
-    audioEngine?.stop()
-    audioEngine?.inputNode.removeTap(onBus: 0)
-    request?.endAudio()
-    task?.finish()
-    audioEngine = nil
-    request = nil
-    task = nil
-    isListening = false
+    if inContinuous {
+      beginCycle()
+    } else {
+      isListening = false
+    }
   }
 }

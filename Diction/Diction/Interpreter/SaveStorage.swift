@@ -70,3 +70,18 @@ nonisolated enum SaveStorage {
     }
   }
 }
+
+extension SaveStorage {
+  /// Maps an emglken fileref basename to a concrete file inside the game's save
+  /// directory (`<Documents>/Saves/<gameID>/<basename>`), creating the directory.
+  /// Returns nil for an empty/unsafe basename. Read and write agree by
+  /// construction because both derive the URL from (gameID, basename).
+  static func emglkenFileURL(gameID: String, basename: String) -> URL? {
+    guard !basename.isEmpty, !basename.contains("/"), basename != "..",
+          !basename.contains(".."), let gameDir = gameDirectoryURL(gameID: gameID) else {
+      return nil
+    }
+    try? FileManager.default.createDirectory(at: gameDir, withIntermediateDirectories: true)
+    return gameDir.appendingPathComponent(basename, isDirectory: false)
+  }
+}

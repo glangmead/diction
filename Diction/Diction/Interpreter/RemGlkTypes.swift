@@ -11,8 +11,9 @@ nonisolated struct RemGlkUpdate: Codable, Sendable {
   var disable: Bool?
   var exit: Bool?
   /// Present when the interpreter is blocked waiting for a fileref dialog
-  /// (save / restore / transcript / command-record / data resource). The
-  /// host must respond with a `RemGlkSpecialResponse` carrying a file path.
+  /// (save / restore / transcript / command-record / data resource).
+  /// `WebInterpreterHost` answers it internally and routes the bytes to
+  /// `SaveStorage`, so the session itself never sees this set.
   var specialinput: SpecialRequest?
 
   struct Window: Codable, Sendable {
@@ -151,26 +152,4 @@ nonisolated struct RemGlkCharInput: Codable, Sendable {
   var gen: Int
   var window: Int
   var value: String
-}
-
-/// JSON payload sent back to RemGlk in response to a `fileref_prompt`
-/// special input. `value` is the absolute path the game should read/write,
-/// or `nil` to indicate the user cancelled the dialog.
-nonisolated struct RemGlkSpecialResponse: Codable, Sendable {
-  var type: String = "specialresponse"
-  var gen: Int
-  var response: String = "fileref_prompt"
-  var value: String?
-}
-
-/// JSON payload for window arrangement (sent on init to set metrics).
-nonisolated struct RemGlkArrangeInput: Codable, Sendable {
-  var type: String = "arrange"
-  var gen: Int
-  var metrics: Metrics
-
-  struct Metrics: Codable, Sendable {
-    var width: Double
-    var height: Double
-  }
 }

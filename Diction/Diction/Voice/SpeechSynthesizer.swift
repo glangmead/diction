@@ -10,6 +10,9 @@ final class SpeechSynthesizer: NSObject {
 
   private let synthesizer = AVSpeechSynthesizer()
   private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
+  /// Set by `stop()` so an in-flight narration pass halts at the next entry
+  /// rather than skipping to the following sentence. Reset when a pass begins.
+  private var isStopped = false
 
   override init() {
     super.init()
@@ -26,34 +29,43 @@ final class SpeechSynthesizer: NSObject {
     await enqueue(utterance)
   }
 
-  /// Speaks the plain text of a styled entry, applying minor prosody from style.
-  func speak(_ styledText: StyledText) async {
-    for run in styledText.runs {
-      let speakable = Self.cleanForSpeech(run.text)
-      guard !speakable.isEmpty else { continue }
+  /// Speaks a sequence of styled entries as one interruptible pass, applying
+  /// minor prosody from each run's style. `stop()` halts the whole pass — not
+  /// just the current sentence — by setting `isStopped`, which this loop checks
+  /// before every utterance.
+  func speak(_ entries: [StyledText]) async {
+    isStopped = false
+    for entry in entries {
+      if isStopped { return }
+      for run in entry.runs {
+        if isStopped { return }
+        let speakable = Self.cleanForSpeech(run.text)
+        guard !speakable.isEmpty else { continue }
 
-      let utterance = AVSpeechUtterance(string: speakable)
-      utterance.voice = selectedVoice()
-      utterance.rate = speechRate
+        let utterance = AVSpeechUtterance(string: speakable)
+        utterance.voice = selectedVoice()
+        utterance.rate = speechRate
 
-      switch run.style {
-      case .header, .subheader:
-        utterance.rate = speechRate * 0.9
-        utterance.preUtteranceDelay = 0.3
-        utterance.postUtteranceDelay = 0.3
-      case .emphasized:
-        utterance.pitchMultiplier = 1.1
-      case .alert, .note:
-        utterance.preUtteranceDelay = 0.2
-      default:
-        break
+        switch run.style {
+        case .header, .subheader:
+          utterance.rate = speechRate * 0.9
+          utterance.preUtteranceDelay = 0.3
+          utterance.postUtteranceDelay = 0.3
+        case .emphasized:
+          utterance.pitchMultiplier = 1.1
+        case .alert, .note:
+          utterance.preUtteranceDelay = 0.2
+        default:
+          break
+        }
+
+        await enqueue(utterance)
       }
-
-      await enqueue(utterance)
     }
   }
 
   func stop() {
+    isStopped = true
     synthesizer.stopSpeaking(at: .immediate)
     isSpeaking = false
     for continuation in pendingContinuations {

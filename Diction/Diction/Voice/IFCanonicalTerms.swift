@@ -54,8 +54,19 @@ nonisolated enum IFCanonicalTerms {
     "troll", "grue", "thief", "wizard"
   ]
 
+  /// Coordinator-command vocabulary. These are addressed to the app itself
+  /// ("<wake word>, reread"), not to the game's parser. Biasing them ensures
+  /// the recognizer hears the command verbs cleanly. The wake word itself is
+  /// prepended separately by `VoiceCoordinator`, since it's user-configurable.
+  static let coordinator: [String] = [
+    "reread", "repeat", "again",
+    "stop", "pause", "quiet",
+    "faster", "slower",
+    "speed up", "slow down"
+  ]
+
   /// Ordered for `contextualStrings`: highest-bias terms first so they
   /// always survive the recognizer's truncation, regardless of how big
   /// the per-game dictionary is.
-  static let all: [String] = directions + verbs + commonNouns
+  static let all: [String] = coordinator + directions + verbs + commonNouns
 }
