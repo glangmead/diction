@@ -9,6 +9,7 @@ struct IFDBBrowserView: View {
   @State private var isSearching = false
   @State private var downloading: Set<String> = []
   @State private var errorMessage: String?
+  @State private var downloadError: String?
   private let client = IFDBClient()
 
   var body: some View {
@@ -30,6 +31,18 @@ struct IFDBBrowserView: View {
               description: Text("Search for interactive fiction by title or author.")
             )
           }
+        }
+        .alert(
+          "Download failed",
+          isPresented: Binding(
+            get: { downloadError != nil },
+            set: { if !$0 { downloadError = nil } }
+          ),
+          presenting: downloadError
+        ) { _ in
+          Button("OK", role: .cancel) {}
+        } message: { message in
+          Text(message)
         }
     }
   }
@@ -62,17 +75,18 @@ struct IFDBBrowserView: View {
             .foregroundStyle(.secondary)
         }
         HStack(spacing: 8) {
-          if let format = result.format {
-            Text(format)
+          if let devsys = result.devsys {
+            Text(devsys)
               .font(.caption)
               .padding(.horizontal, 6)
               .padding(.vertical, 2)
               .background(Capsule().fill(.blue.opacity(0.2)))
           }
-          if let rating = result.starRating {
+          if let rating = result.ratingText {
             Label(rating, systemImage: "star.fill")
               .font(.caption)
               .foregroundStyle(.orange)
+              .accessibilityLabel("\(rating) star rating")
           }
         }
       }
@@ -82,7 +96,8 @@ struct IFDBBrowserView: View {
 
       if downloading.contains(result.tuid) {
         ProgressView()
-      } else if result.storyFormat != nil {
+          .accessibilityLabel("Downloading \(result.title)")
+      } else {
         Button("Download") { downloadGame(result) }
           .buttonStyle(.bordered)
           .controlSize(.small)
@@ -113,10 +128,8 @@ struct IFDBBrowserView: View {
     Task {
       defer { downloading.remove(result.tuid) }
       do {
-        guard let downloadURL = try await client.downloadURL(tuid: result.tuid) else {
-          return
-        }
-        let ext = downloadURL.pathExtension.isEmpty ? "z5" : downloadURL.pathExtension
+        let download = try await client.resolveDownload(tuid: result.tuid)
+        let ext = download.url.pathExtension.isEmpty ? "z5" : download.url.pathExtension
         let safeTitle = result.title
           .replacingOccurrences(of: "/", with: "-")
           .replacingOccurrences(of: ":", with: "-")
@@ -125,10 +138,10 @@ struct IFDBBrowserView: View {
           for: .documentDirectory, in: .userDomainMask
         )[0].appendingPathComponent(filename)
 
-        try await client.download(from: downloadURL, to: dest)
+        try await client.download(from: download.url, to: dest)
         fileManager.refresh()
       } catch {
-        // Caller silently logs; the row simply stops spinning.
+        downloadError = "\(result.title): \(error.localizedDescription)"
       }
     }
   }

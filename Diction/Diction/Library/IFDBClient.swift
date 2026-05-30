@@ -1,25 +1,36 @@
 import Foundation
 
-/// One IFDB game record as returned by the search endpoint.
+/// One IFDB game record as returned by the search endpoint
+/// (`/search?searchfor=…&json=yes`).
+///
+/// The search payload carries no runtime format — only `devsys`, the
+/// authoring system (e.g. "ZIL", "Inform 7", "TADS 2"). The actual
+/// Z-machine/Glulx format is resolved later from the iFiction XML.
 nonisolated struct IFDBSearchResult: Identifiable, Sendable, Codable {
   var tuid: String
   var title: String
   var author: String?
-  var starRating: String?
-  var format: String?
+  /// Authoring system, shown as a chip. IFDB calls this `devsys`.
+  var devsys: String?
+  /// IFDB returns this as a JSON number (whole or half-step, e.g. 4 or 2.5).
+  var starRating: Double?
 
   var id: String { tuid }
 
-  var storyFormat: StoryFormat? {
-    switch format?.lowercased() {
-    case "zcode", "z-code", "z3", "z5", "z8":
-      return .zMachine
-    case "glulx":
-      return .glulx
-    default:
-      return nil
+  /// Rating formatted for display: "4", "2.5", or nil when unrated.
+  var ratingText: String? {
+    guard let starRating, starRating > 0 else { return nil }
+    if starRating == starRating.rounded() {
+      return String(Int(starRating))
     }
+    return String(starRating)
   }
+}
+
+/// A resolved, directly-downloadable story file for a game.
+nonisolated struct IFDBDownload: Sendable, Equatable {
+  var url: URL
+  var format: StoryFormat
 }
 
 /// Talks to the IFDB public API.
@@ -39,7 +50,7 @@ actor IFDBClient {
     )
     components?.queryItems = [
       URLQueryItem(name: "searchfor", value: query),
-      URLQueryItem(name: "json", value: "yes"),
+      URLQueryItem(name: "json", value: "yes")
     ]
     guard let url = components?.url else {
       throw IFDBError.invalidQuery
@@ -56,27 +67,28 @@ actor IFDBClient {
     return (try? JSONDecoder().decode([IFDBSearchResult].self, from: data)) ?? []
   }
 
-  /// Resolves the download URL for a given IFDB TUID. Parses iFiction XML
-  /// for the first `<url>` element it finds.
-  func downloadURL(tuid: String) async throws -> URL? {
+  /// Resolves a directly-downloadable Z-machine/Glulx story file for a
+  /// given IFDB TUID by parsing the game's iFiction XML record. Throws
+  /// `IFDBError.noDownloadURL` when the game offers no runnable, uncompressed
+  /// story file (e.g. TADS/Hugo games, or download-only-as-zip listings).
+  func resolveDownload(tuid: String) async throws -> IFDBDownload {
     var components = URLComponents(
       url: baseURL.appendingPathComponent("viewgame"),
       resolvingAgainstBaseURL: false
     )
     components?.queryItems = [
       URLQueryItem(name: "ifiction", value: ""),
-      URLQueryItem(name: "id", value: tuid),
+      URLQueryItem(name: "id", value: tuid)
     ]
-    guard let url = components?.url else { return nil }
+    guard let url = components?.url else { throw IFDBError.invalidQuery }
 
     let (data, response) = try await session.data(from: url)
     try Self.ensureSuccess(response)
 
-    guard let xml = String(data: data, encoding: .utf8) else { return nil }
-    if let urlString = extractFirstURL(in: xml) {
-      return URL(string: urlString)
+    guard let download = Self.playableDownload(fromIFiction: data) else {
+      throw IFDBError.noDownloadURL
     }
-    return nil
+    return download
   }
 
   /// Downloads a story file from the resolved URL into the given destination.
@@ -104,17 +116,129 @@ actor IFDBClient {
     }
   }
 
-  private nonisolated func extractFirstURL(in xml: String) -> String? {
-    guard let openRange = xml.range(of: "<url>") else { return nil }
-    let tail = xml[openRange.upperBound...]
-    guard let closeRange = tail.range(of: "</url>") else { return nil }
-    return String(tail[..<closeRange.lowerBound])
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+  /// Picks the best playable story file out of an iFiction XML document.
+  ///
+  /// iFiction's `<downloads><links>` lists every associated file — cover art,
+  /// solutions, zipped distributions, online-play links — so we cannot just
+  /// take the first `<url>`. We select the first `<link>` whose `<format>` is
+  /// a VM we run (zcode/glulx) and that carries no `<compression>` (the app's
+  /// `FormatDetector` reads raw header bytes, not archives), preferring links
+  /// explicitly marked `<isGame/>`.
+  nonisolated static func playableDownload(fromIFiction data: Data) -> IFDBDownload? {
+    let parser = XMLParser(data: data)
+    let delegate = IFictionDownloadParser()
+    parser.delegate = delegate
+    parser.parse()
+    return delegate.gameCandidate ?? delegate.anyCandidate
   }
 }
 
-enum IFDBError: Error {
+/// Maps an iFiction `<format>` string to a runtime VM we support.
+private func ifictionStoryFormat(_ raw: String) -> StoryFormat? {
+  switch raw.lowercased() {
+  case "zcode", "z-code":
+    return .zMachine
+  case "glulx":
+    return .glulx
+  default:
+    return nil
+  }
+}
+
+/// Streams an iFiction document, collecting download `<link>` entries from the
+/// `<downloads>` section only — never the page link or cover-art `<url>` that
+/// live elsewhere in the record.
+private final class IFictionDownloadParser: NSObject, XMLParserDelegate {
+  private(set) var gameCandidate: IFDBDownload?
+  private(set) var anyCandidate: IFDBDownload?
+
+  private var inDownloads = false
+  private var inLink = false
+  private var text = ""
+
+  private var linkURL = ""
+  private var linkFormat = ""
+  private var linkIsGame = false
+  private var linkCompressed = false
+
+  func parser(
+    _ parser: XMLParser,
+    didStartElement elementName: String,
+    namespaceURI: String?,
+    qualifiedName: String?,
+    attributes: [String: String]
+  ) {
+    text = ""
+    switch elementName {
+    case "downloads":
+      inDownloads = true
+    case "link" where inDownloads:
+      inLink = true
+      linkURL = ""
+      linkFormat = ""
+      linkIsGame = false
+      linkCompressed = false
+    case "isGame" where inLink:
+      linkIsGame = true
+    case "compression" where inLink:
+      linkCompressed = true
+    default:
+      break
+    }
+  }
+
+  func parser(_ parser: XMLParser, foundCharacters string: String) {
+    text += string
+  }
+
+  func parser(
+    _ parser: XMLParser,
+    didEndElement elementName: String,
+    namespaceURI: String?,
+    qualifiedName: String?
+  ) {
+    switch elementName {
+    case "downloads":
+      inDownloads = false
+    case "url" where inLink:
+      linkURL = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    case "format" where inLink:
+      linkFormat = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    case "link" where inLink:
+      inLink = false
+      evaluateLink()
+    default:
+      break
+    }
+    text = ""
+  }
+
+  private func evaluateLink() {
+    guard !linkCompressed,
+          let format = ifictionStoryFormat(linkFormat),
+          let url = URL(string: linkURL) else { return }
+    let candidate = IFDBDownload(url: url, format: format)
+    if linkIsGame {
+      if gameCandidate == nil { gameCandidate = candidate }
+    } else if anyCandidate == nil {
+      anyCandidate = candidate
+    }
+  }
+}
+
+enum IFDBError: LocalizedError {
   case invalidQuery
   case requestFailed
   case noDownloadURL
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidQuery:
+      return "That search couldn't be performed."
+    case .requestFailed:
+      return "Couldn't reach IFDB."
+    case .noDownloadURL:
+      return "No Z-machine or Glulx story file is available for this game."
+    }
+  }
 }
