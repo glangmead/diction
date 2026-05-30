@@ -75,3 +75,6 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Bundled Kokoro neural TTS model assets (~95MB, regenerate with nocommit/stage_kokoro.py)
+Diction/Diction/Resources/KokoroModels.bundle/

@@ -66,6 +66,9 @@ final class VoiceCoordinator {
 
   /// Called once when the game view appears; applies the default-on axes.
   func startOnAppear() async {
+    // Warm the neural model early so the opening narration doesn't pay the
+    // ~2-3s cold start.
+    synthesizer.warmUpKokoro()
     await setListening(true)
   }
 

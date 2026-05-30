@@ -10,6 +10,11 @@ struct SettingsView: View {
   @AppStorage("speechVoiceId") private var voiceId: String = ""
   @AppStorage("wakeWord") private var wakeWord: String = "game"
 
+  // Spike: neural Kokoro voice settings.
+  @AppStorage("useKokoro") private var useKokoro: Bool = true
+  @AppStorage("kokoroVoiceId") private var kokoroVoiceId: String = "af_heart"
+  @AppStorage("kokoroEchoVoiceId") private var kokoroEchoVoiceId: String = "am_onyx"
+
   /// Count of currently-installed Premium voices, used to surface whether
   /// the user has installed any of Apple's higher-quality voices.
   private let installedPremiumCount: Int = AVSpeechSynthesisVoice.speechVoices()
@@ -19,6 +24,7 @@ struct SettingsView: View {
   var body: some View {
     NavigationStack {
       Form {
+        kokoroSection
         speechSection
         moreVoicesSection
         aboutSection
@@ -29,6 +35,44 @@ struct SettingsView: View {
           Button("Done") { dismiss() }
         }
       }
+    }
+  }
+
+  // MARK: - Neural voice (Kokoro) section
+
+  private var kokoroSection: some View {
+    Section {
+      Toggle("Use neural voice", isOn: $useKokoro)
+        .accessibilityHint("When off, falls back to the system voice configured below.")
+
+      if useKokoro {
+        NavigationLink {
+          KokoroVoicePickerView(title: "Game Voice", selectedVoiceID: $kokoroVoiceId)
+        } label: {
+          LabeledContent("Game voice") {
+            Text(KokoroSpeechEngine.displayName(for: kokoroVoiceId))
+              .foregroundStyle(.secondary)
+          }
+        }
+        NavigationLink {
+          KokoroVoicePickerView(title: "Echo Voice", selectedVoiceID: $kokoroEchoVoiceId)
+        } label: {
+          LabeledContent("Command echo voice") {
+            Text(KokoroSpeechEngine.displayName(for: kokoroEchoVoiceId))
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+    } header: {
+      Text("Neural Voice (Kokoro)")
+    } footer: {
+      Text(
+        """
+        On-device neural TTS. A different echo voice marks app replies as \
+        distinct from the game's narration. Requires a recent device; the \
+        simulator falls back to the system voice.
+        """
+      )
     }
   }
 

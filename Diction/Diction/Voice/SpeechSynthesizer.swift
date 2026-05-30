@@ -14,12 +14,27 @@ final class SpeechSynthesizer: NSObject {
   /// rather than skipping to the following sentence. Reset when a pass begins.
   private var isStopped = false
 
+  /// Spike: neural Kokoro engine. Used when `useKokoro` is on and the model
+  /// loads; otherwise the AVSpeechSynthesizer path below runs unchanged.
+  private let kokoro = KokoroSpeechEngine()
+
   override init() {
     super.init()
     synthesizer.delegate = self
   }
 
   func speakCommandEcho(_ command: String) async {
+    if useKokoro {
+      await kokoro.prepareIfNeeded()
+      if kokoro.isReady {
+        isStopped = false
+        isSpeaking = true
+        defer { isSpeaking = false }
+        // A distinct voice (not pitch) marks the echo as the app, not the game.
+        await kokoro.speak(command, voice: kokoroEchoVoice, speed: kokoroSpeed)
+        return
+      }
+    }
     let utterance = AVSpeechUtterance(string: command)
     utterance.voice = selectedVoice()
     utterance.rate = AVSpeechUtteranceDefaultSpeechRate
@@ -35,43 +50,83 @@ final class SpeechSynthesizer: NSObject {
   /// before every utterance.
   func speak(_ entries: [StyledText]) async {
     isStopped = false
+    if useKokoro {
+      await kokoro.prepareIfNeeded()
+      if kokoro.isReady {
+        await speakViaKokoro(entries)
+        return
+      }
+      print("[kokoro] not ready (\(kokoro.statusDescription)) — using system voice")
+    }
+    await speakViaSystem(entries)
+  }
+
+  /// The AVSpeechSynthesizer pass (fallback engine). Style → prosody lives in
+  /// `systemUtterance` so this stays a simple interruptible loop.
+  private func speakViaSystem(_ entries: [StyledText]) async {
     for entry in entries {
       if isStopped { return }
       for run in entry.runs {
         if isStopped { return }
         let speakable = Self.cleanForSpeech(run.text)
         guard !speakable.isEmpty else { continue }
-
-        let utterance = AVSpeechUtterance(string: speakable)
-        utterance.voice = selectedVoice()
-        utterance.rate = speechRate
-
-        switch run.style {
-        case .header, .subheader:
-          utterance.rate = speechRate * 0.9
-          utterance.preUtteranceDelay = 0.3
-          utterance.postUtteranceDelay = 0.3
-        case .emphasized:
-          utterance.pitchMultiplier = 1.1
-        case .alert, .note:
-          utterance.preUtteranceDelay = 0.2
-        default:
-          break
-        }
-
-        await enqueue(utterance)
+        await enqueue(systemUtterance(text: speakable, style: run.style))
       }
     }
+  }
+
+  private func systemUtterance(text: String, style: RemGlkUpdate.TextStyle) -> AVSpeechUtterance {
+    let utterance = AVSpeechUtterance(string: text)
+    utterance.voice = selectedVoice()
+    utterance.rate = speechRate
+    switch style {
+    case .header, .subheader:
+      utterance.rate = speechRate * 0.9
+      utterance.preUtteranceDelay = 0.3
+      utterance.postUtteranceDelay = 0.3
+    case .emphasized:
+      utterance.pitchMultiplier = 1.1
+    case .alert, .note:
+      utterance.preUtteranceDelay = 0.2
+    default:
+      break
+    }
+    return utterance
   }
 
   func stop() {
     isStopped = true
     synthesizer.stopSpeaking(at: .immediate)
+    kokoro.stop()
     isSpeaking = false
     for continuation in pendingContinuations {
       continuation.resume()
     }
     pendingContinuations.removeAll()
+  }
+
+  /// Kick the Kokoro model load early (cold start ~2-3s) so the opening
+  /// narration doesn't pay for it. Call from the game view's appear.
+  func warmUpKokoro() {
+    guard useKokoro else { return }
+    Task { await kokoro.prepareIfNeeded() }
+  }
+
+  // MARK: - Kokoro pass
+
+  /// Speak each entry's plain text through Kokoro as one interruptible pass.
+  /// `isStopped` is honored between entries; `KokoroSpeechEngine` chunks each
+  /// entry into sentences internally.
+  private func speakViaKokoro(_ entries: [StyledText]) async {
+    print("[kokoro] narrating via neural voice '\(kokoroGameVoice)'")
+    isSpeaking = true
+    defer { isSpeaking = false }
+    for entry in entries {
+      if isStopped { return }
+      let text = Self.cleanForSpeech(entry.plainText)
+      guard !text.isEmpty else { continue }
+      await kokoro.speak(text, voice: kokoroGameVoice, speed: kokoroSpeed)
+    }
   }
 
   // MARK: - Internals
@@ -87,6 +142,29 @@ final class SpeechSynthesizer: NSObject {
   private var speechRate: Float {
     let stored = UserDefaults.standard.float(forKey: "speechRate")
     return stored > 0 ? Float(stored) : AVSpeechUtteranceDefaultSpeechRate
+  }
+
+  /// Spike toggle (default on): use the neural voice when the model is present.
+  private var useKokoro: Bool {
+    UserDefaults.standard.object(forKey: "useKokoro") as? Bool ?? true
+  }
+
+  private var kokoroGameVoice: String {
+    let id = UserDefaults.standard.string(forKey: "kokoroVoiceId") ?? ""
+    return id.isEmpty ? "af_heart" : id
+  }
+
+  /// A different voice for command echoes so "you said: go north" is audibly the
+  /// app, not the game.
+  private var kokoroEchoVoice: String {
+    let id = UserDefaults.standard.string(forKey: "kokoroEchoVoiceId") ?? ""
+    return id.isEmpty ? "am_onyx" : id
+  }
+
+  /// Kokoro speed from the shared Settings rate, so `faster` / `slower` and the
+  /// rate slider track across both engines.
+  private var kokoroSpeed: Float {
+    KokoroSpeechEngine.speed(forStoredRate: speechRate)
   }
 
   private func selectedVoice() -> AVSpeechSynthesisVoice? {

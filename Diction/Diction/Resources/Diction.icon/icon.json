@@ -1,27 +1,38 @@
 {
-  "fill" : "system-dark",
+  "fill-specializations" : [
+    {
+      "value" : "system-light"
+    },
+    {
+      "appearance" : "dark",
+      "value" : "system-dark"
+    }
+  ],
   "groups" : [
     {
       "layers" : [
         {
-          "fill-specializations" : [
-            {
-              "value" : {
-                "solid" : "extended-srgb:0.20392,0.78039,0.34902,1.00000"
-              }
-            },
-            {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "extended-srgb:0.20392,0.78039,0.34902,1.00000"
-              }
-            }
-          ],
-          "glass" : true,
-          "image-name" : "Image.heif",
-          "name" : "Image",
+          "fill" : {
+            "solid" : "extended-srgb:0.20392,0.78039,0.34902,1.00000"
+          },
+          "image-name" : "Image 5.heif",
+          "name" : "Image 5",
           "position" : {
-            "scale" : 1.1,
+            "scale" : 1.75,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "fill" : {
+            "solid" : "extended-gray:0.25000,1.00000"
+          },
+          "image-name" : "Image 4.heif",
+          "name" : "Image 4",
+          "position" : {
+            "scale" : 1.75,
             "translation-in-points" : [
               0,
               0
