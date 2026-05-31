@@ -106,12 +106,6 @@ struct LibraryView: View {
         Text(story.source.label)
           .font(.caption)
           .foregroundStyle(.secondary)
-        if let date = story.lastPlayed {
-          Spacer()
-          Text(date, style: .relative)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
       }
     }
     .padding(.vertical, 4)

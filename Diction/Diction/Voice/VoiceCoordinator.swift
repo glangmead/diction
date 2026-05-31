@@ -311,16 +311,17 @@ final class VoiceCoordinator {
 
   // MARK: - Opening narration
 
-  /// Speaks the game's opening room state aloud — once per game session,
-  /// only when narration is active and the player hasn't sent any
-  /// commands yet. Title / copyright / serial-number boilerplate is
-  /// filtered out by `InitialNarration`.
+  /// Speaks the game's opening aloud — once per game session, only when
+  /// narration is active and the player hasn't sent any commands yet. The
+  /// entire opening transcript is read, including whatever the game prints
+  /// before its copyright/serial line (games often open with mood-setting
+  /// prose there, which we used to skip and shouldn't).
   func narrateOpeningIfNeeded() {
     guard let session, isSpeaking else { return }
     guard !hasNarratedOpening else { return }
     guard !session.transcript.contains(where: \.isUserInput) else { return }
 
-    let opening = InitialNarration.entries(from: session.transcript)
+    let opening = session.transcript
     guard !opening.isEmpty else { return }
 
     hasNarratedOpening = true

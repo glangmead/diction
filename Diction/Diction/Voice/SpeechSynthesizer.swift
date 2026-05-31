@@ -8,6 +8,11 @@ import AVFoundation
 final class SpeechSynthesizer: NSObject {
   private(set) var isSpeaking = false
 
+  /// True while the neural voice model is loading (cold start can take ~15 s on
+  /// device). Lets the game UI show a loading affordance; always false when the
+  /// neural path is off, since the system voice needs no load.
+  var isPreparingVoice: Bool { useKokoro && kokoro.state == .preparing }
+
   private let synthesizer = AVSpeechSynthesizer()
   private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
   /// Set by `stop()` so an in-flight narration pass halts at the next entry

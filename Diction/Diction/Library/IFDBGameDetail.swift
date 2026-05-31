@@ -124,16 +124,17 @@ private func httpsUpgraded(_ url: URL) -> URL {
   return components.url ?? url
 }
 
-/// Maps an iFiction/IFDB `format` string to a runtime VM we support.
+/// Maps an iFiction/IFDB `format` string to a runtime VM we support. IFDB tags
+/// Blorb-wrapped games as `blorb/glulx` or `blorb/zcode` (and bare `glulx` /
+/// `zcode` / `z-code`), so match the VM name within the string rather than
+/// exact-matching. The downloaded file's real format is re-confirmed from its
+/// bytes by `FormatDetector` (a `.gblorb` resolves to `.glulx` via its inner
+/// `GLUL` chunk), so picking `.glulx` here for `blorb/glulx` is correct.
 func ifictionStoryFormat(_ raw: String) -> StoryFormat? {
-  switch raw.lowercased() {
-  case "zcode", "z-code":
-    return .zMachine
-  case "glulx":
-    return .glulx
-  default:
-    return nil
-  }
+  let format = raw.lowercased()
+  if format.contains("glulx") { return .glulx }
+  if format.contains("zcode") || format.contains("z-code") { return .zMachine }
+  return nil
 }
 
 /// Formats a half-step star rating for display: "4", "2.5", or nil when unrated.

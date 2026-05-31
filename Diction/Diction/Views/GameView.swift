@@ -36,6 +36,7 @@ struct GameView: View {
     .toolbarColorScheme(.dark, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarLeading) { settingsButton }
+      ToolbarItem(placement: .topBarTrailing) { voiceLoadingIndicator }
       ToolbarItem(placement: .topBarTrailing) { micToggle }
       ToolbarItem(placement: .topBarTrailing) { speakerToggle }
     }
@@ -106,6 +107,24 @@ struct GameView: View {
     }
     .accessibilityLabel(coordinator.isSpeaking ? "Mute narration" : "Unmute narration")
     .accessibilityHint("Whether the app reads game responses aloud. Muting stops the current sentence.")
+  }
+
+  /// Shown while the neural narration voice loads (the model cold-start can take
+  /// ~15 s). Collapses to nothing once the voice is ready, fails to load, or
+  /// when the neural path is off.
+  @ViewBuilder
+  private var voiceLoadingIndicator: some View {
+    if coordinator.synthesizer.isPreparingVoice {
+      HStack(spacing: 5) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Loading voice")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Loading narration voice")
+    }
   }
 
   // MARK: - Transcript rendering

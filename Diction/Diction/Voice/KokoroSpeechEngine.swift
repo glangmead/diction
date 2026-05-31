@@ -162,17 +162,22 @@ final class KokoroSpeechEngine: NSObject {
     for chunk in Self.chunk(text) {
       if stopped { return }
       do {
-        let wav: Data
+        let result: KokoroAneSynthesisResult
         if let phonemizer {
           // bf_/bm_ are the British voice packs; everything else is US.
           let british = voice.hasPrefix("bf_") || voice.hasPrefix("bm_")
           let ipa = try await phonemizer.phonemize(chunk, british: british)
           print("[kokoro] speed=\(speed) IPA: \(chunk.prefix(24))… -> \(ipa.prefix(80))")
-          wav = try await manager.synthesizeFromPhonemes(ipa, voice: voice, speed: speed)
+          result = try await manager.synthesizeFromPhonemesDetailed(ipa, voice: voice, speed: speed)
         } else {
-          wav = try await manager.synthesize(text: chunk, voice: voice, speed: speed)
+          result = try await manager.synthesizeDetailed(text: chunk, voice: voice, speed: speed)
         }
         if stopped { return }
+        // Each clip is one sentence, so the model's leading + trailing silence
+        // pads (~290 ms + ~490 ms) would otherwise stack into a ~780 ms gap at
+        // every sentence boundary. Trim each clip to a short controlled tail.
+        let trimmed = KokoroPCM.trimSilence(result.samples, sampleRate: result.sampleRate)
+        let wav = KokoroPCM.wavData(trimmed, sampleRate: result.sampleRate)
         ensureSessionForPlayback()
         await play(wav)
       } catch {

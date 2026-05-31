@@ -131,3 +131,18 @@ func noPlayableFile() throws {
   let detail = try JSONDecoder().decode(IFDBGameDetail.self, from: Data(json.utf8))
   #expect(detail.playableDownload == nil)
 }
+
+@Test("Resolves a Blorb-wrapped Glulx game (IFDB 'blorb/glulx'), skipping the zip")
+func resolvesBlorbGlulx() throws {
+  // Blue Lacuna's exact link shape: a .gblorb tagged "blorb/glulx" plus a zip.
+  let json = """
+  {"ifdb": {"downloads": {"links": [
+    {"url": "https://ifarchive.org/glulx/BlueLacuna.gblorb", "isGame": true, "format": "blorb/glulx"},
+    {"url": "https://ifarchive.org/st08/BlueLacuna.zip", "isGame": true, "format": "blorb/glulx", "compression": "zip"}
+  ]}}}
+  """
+  let detail = try JSONDecoder().decode(IFDBGameDetail.self, from: Data(json.utf8))
+  let download = try #require(detail.playableDownload)
+  #expect(download.url.absoluteString == "https://ifarchive.org/glulx/BlueLacuna.gblorb")
+  #expect(download.format == .glulx)
+}
