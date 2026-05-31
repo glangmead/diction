@@ -23,13 +23,14 @@ func decimalsAreSpoken() {
   #expect(priced.contains("fˈIv") && priced.contains("fˈɪfti"), "$5.50 → \(priced)")
 }
 
-@Test("Dashes leave no em-dash token and no double spaces")
+@Test("Standalone dash becomes a triple-semicolon pause; mid-compound dash is stripped")
 @MainActor
-func dashesStripped() {
+func dashesHandled() {
   #expect(misakiResourcesReady())
   let out = EnglishG2P(british: false, fallback: { _ in ("", 1) }).phonemize(text: "hey -- over here, my to-do list").0
-  #expect(!out.contains("—"), "em-dash present: \(out)")
+  #expect(!out.contains("—"), "raw em-dash present: \(out)")
   #expect(!out.contains("  "), "double space present: \(out)")
+  #expect(out.contains("hˈA;;;"), "standalone dash not turned into ;;;: \(out)")
   #expect(out.contains("tudˈu"), "to-do not joined: \(out)")
 }
 

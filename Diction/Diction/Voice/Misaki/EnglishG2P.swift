@@ -496,9 +496,12 @@ final public class EnglishG2P {
     }
 
     var result = finalTokens.map { ( $0.phonemes ?? self.unk ) + $0.whitespace }.joined()
-    // Dashes carry no audible token: drop the em-dash (mid-compound and
-    // standalone) and collapse to a single word boundary — the shortest break
-    // the model honors (a comma was judged too long).
+    // A standalone em-dash (flanked by whitespace) becomes a longer pause: three
+    // semicolons (each ';' is a model pause token — one comma read too short, a
+    // period skewed the intonation). A mid-compound em-dash (e.g. "to-do" →
+    // tu—dˈu) is removed so the word flows.
+    result = result.replacingOccurrences(
+      of: #"\s+—+\s*|\s*—+\s+"#, with: ";;; ", options: .regularExpression)
     result = result.replacingOccurrences(of: "—", with: "")
     while result.contains("  ") { result = result.replacingOccurrences(of: "  ", with: " ") }
     result = result.trimmingCharacters(in: .whitespaces)
