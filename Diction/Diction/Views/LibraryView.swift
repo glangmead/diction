@@ -46,7 +46,7 @@ struct LibraryView: View {
           .accessibilityLabel("Add from Files")
         }
         ToolbarItem(placement: .topBarTrailing) {
-          Button("Browse IFDB") {
+          Button("Search IFDB") {
             showingIFDB = true
           }
         }
@@ -81,7 +81,7 @@ struct LibraryView: View {
             "No Games",
             systemImage: "book.closed",
             description: Text(
-              "Import story files or browse IFDB to get started."
+              "Import story files or search IFDB to get started."
             )
           )
         }

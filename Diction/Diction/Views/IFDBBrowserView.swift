@@ -10,12 +10,21 @@ struct IFDBBrowserView: View {
   @State private var downloading: Set<String> = []
   @State private var errorMessage: String?
   @State private var downloadError: String?
+  @State private var showingDownloadError = false
+  @State private var selected: IFDBSearchResult?
   private let client = IFDBClient()
 
   var body: some View {
     NavigationStack {
       content
-        .navigationTitle("Browse IFDB")
+        .navigationTitle("Search IFDB")
+        .navigationDestination(item: $selected) { result in
+          IFDBGameDetailView(
+            tuid: result.tuid,
+            fallbackTitle: result.title,
+            fileManager: fileManager
+          )
+        }
         .searchable(text: $searchText, prompt: "Search IFDB")
         .onSubmit(of: .search) { performSearch() }
         .toolbar {
@@ -34,13 +43,9 @@ struct IFDBBrowserView: View {
         }
         .alert(
           "Download failed",
-          isPresented: Binding(
-            get: { downloadError != nil },
-            set: { if !$0 { downloadError = nil } }
-          ),
+          isPresented: $showingDownloadError,
           presenting: downloadError
         ) { _ in
-          Button("OK", role: .cancel) {}
         } message: { message in
           Text(message)
         }
@@ -67,30 +72,11 @@ struct IFDBBrowserView: View {
 
   private func resultRow(_ result: IFDBSearchResult) -> some View {
     HStack(alignment: .top, spacing: 12) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(result.title).font(.headline)
-        if let author = result.author {
-          Text(author)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-        }
-        HStack(spacing: 8) {
-          if let devsys = result.devsys {
-            Text(devsys)
-              .font(.caption)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
-              .background(Capsule().fill(.blue.opacity(0.2)))
-          }
-          if let rating = result.ratingText {
-            Label(rating, systemImage: "star.fill")
-              .font(.caption)
-              .foregroundStyle(.orange)
-              .accessibilityLabel("\(rating) star rating")
-          }
-        }
+      Button { selected = result } label: {
+        rowInfo(result)
       }
-      .accessibilityElement(children: .combine)
+      .buttonStyle(.plain)
+      .accessibilityHint("Shows description and details")
 
       Spacer()
 
@@ -102,9 +88,51 @@ struct IFDBBrowserView: View {
           .buttonStyle(.bordered)
           .controlSize(.small)
           .accessibilityLabel("Download \(result.title)")
+          .accessibilityInputLabels(["Download"])
       }
     }
     .padding(.vertical, 4)
+  }
+
+  private func rowInfo(_ result: IFDBSearchResult) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(result.title).font(.headline)
+      if let author = result.author {
+        Text(author)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      }
+      HStack(spacing: 8) {
+        if let devsys = result.devsys {
+          Text(devsys)
+            .font(.caption)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(.blue.opacity(0.2)))
+        }
+        if let year = result.year {
+          Text(year)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        if let rating = result.ratingText {
+          ratingLabel(rating, count: result.numRatings)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .combine)
+  }
+
+  private func ratingLabel(_ rating: String, count: Int?) -> some View {
+    let countSuffix = count.map { " (\($0))" } ?? ""
+    return Label(rating + countSuffix, systemImage: "star.fill")
+      .font(.caption)
+      .foregroundStyle(.orange)
+      .accessibilityLabel(
+        count.map { "\(rating) stars, \($0) ratings" } ?? "\(rating) star rating"
+      )
   }
 
   private func performSearch() {
@@ -129,19 +157,14 @@ struct IFDBBrowserView: View {
       defer { downloading.remove(result.tuid) }
       do {
         let download = try await client.resolveDownload(tuid: result.tuid)
-        let ext = download.url.pathExtension.isEmpty ? "z5" : download.url.pathExtension
-        let safeTitle = result.title
-          .replacingOccurrences(of: "/", with: "-")
-          .replacingOccurrences(of: ":", with: "-")
-        let filename = "\(safeTitle).\(ext)"
-        let dest = FileManager.default.urls(
+        let documents = FileManager.default.urls(
           for: .documentDirectory, in: .userDomainMask
-        )[0].appendingPathComponent(filename)
-
-        try await client.download(from: download.url, to: dest)
+        )[0]
+        _ = try await client.downloadGame(download, title: result.title, to: documents)
         fileManager.refresh()
       } catch {
         downloadError = "\(result.title): \(error.localizedDescription)"
+        showingDownloadError = true
       }
     }
   }
