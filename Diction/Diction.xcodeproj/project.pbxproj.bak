@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		9B044C5F2FCA82410031B65E /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 9B044C5E2FCA82410031B65E /* FluidAudio */; };
-		9BFD1A012FCBD2A6008EFF64 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 9BFD1A022FCBD2A6008EFF64 /* FluidAudio */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -90,7 +89,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9BFD1A012FCBD2A6008EFF64 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -191,7 +189,6 @@
 			);
 			name = KokoroAudition;
 			packageProductDependencies = (
-				9BFD1A022FCBD2A6008EFF64 /* FluidAudio */,
 			);
 			productName = KokoroAudition;
 			productReference = 9BE929282FCBD2A6008EFF64 /* KokoroAudition */;
@@ -626,11 +623,6 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		9B044C5E2FCA82410031B65E /* FluidAudio */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 9B044C5D2FCA82410031B65E /* XCRemoteSwiftPackageReference "FluidAudio" */;
-			productName = FluidAudio;
-		};
-		9BFD1A022FCBD2A6008EFF64 /* FluidAudio */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9B044C5D2FCA82410031B65E /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;

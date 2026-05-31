@@ -164,7 +164,9 @@ final class KokoroSpeechEngine: NSObject {
       do {
         let wav: Data
         if let phonemizer {
-          let ipa = try await phonemizer.phonemize(chunk)
+          // bf_/bm_ are the British voice packs; everything else is US.
+          let british = voice.hasPrefix("bf_") || voice.hasPrefix("bm_")
+          let ipa = try await phonemizer.phonemize(chunk, british: british)
           print("[kokoro] speed=\(speed) IPA: \(chunk.prefix(24))… -> \(ipa.prefix(80))")
           wav = try await manager.synthesizeFromPhonemes(ipa, voice: voice, speed: speed)
         } else {

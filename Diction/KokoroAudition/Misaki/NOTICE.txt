@@ -1,0 +1,8 @@
+Vendored from MisakiSwift (https://github.com/mlalma/MisakiSwift) and
+MLXUtilsLibrary (https://github.com/mlalma/MLXUtilsLibrary), © the MisakiSwift
+authors, licensed under Apache License 2.0.
+
+Modifications: the MLX BART neural fallback (FallbackNetwork/) is omitted; the
+G2P fallback is stubbed; resource loading reads us_gold/us_silver JSON from the
+adjacent Resources/ directory. Used here only in the KokoroAudition dev tool to
+evaluate misaki's lexicon + text-normalization quality.

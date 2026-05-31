@@ -1,0 +1,7 @@
+# Only excludes vendored third-party code and scratch dirs; default rules apply
+# everywhere else. The Misaki/ folders are Apache-2.0 ports of MisakiSwift —
+# left unformatted to stay faithful to upstream.
+excluded:
+  - Diction/Diction/Voice/Misaki
+  - Diction/KokoroAudition/Misaki
+  - nocommit
