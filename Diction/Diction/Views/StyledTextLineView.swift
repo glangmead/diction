@@ -22,28 +22,55 @@ struct StyledTextLineView: View {
   }
 
   var body: some View {
-    entry.runs.reduce(Text("")) { result, run in
-      result + styledRun(run)
-    }
-    .font(readingFont)
-    .foregroundStyle(Color(white: 0.92))
-    .accessibilityLabel(entry.plainText)
+    Text(attributedLine)
+      .font(readingFont)
+      .foregroundStyle(Color(white: 0.92))
+      .accessibilityLabel(entry.plainText)
   }
 
-  private func styledRun(_ run: StyledText.Run) -> Text {
-    var text = Text(run.text)
-    switch run.style {
-    case .header, .subheader:
-      text = text.bold()
-    case .emphasized:
-      text = text.italic()
-    case .input:
-      text = text.foregroundColor(.gray)
-    case .alert, .note:
-      text = text.foregroundColor(.orange)
-    default:
-      break
+  /// The line as a single `AttributedString` (Text `+` concatenation is
+  /// deprecated in iOS 26). Per-run bold/italic ride as inline presentation
+  /// intent so they compose with the reading font; colour overrides the line
+  /// default. Background fills and reverse-video are deferred to the
+  /// windows-and-audio pass.
+  private var attributedLine: AttributedString {
+    entry.runs.reduce(into: AttributedString()) { line, run in
+      var piece = AttributedString(run.text)
+      var intent: InlinePresentationIntent = []
+      if Self.isBold(run) { intent.insert(.stronglyEmphasized) }
+      if Self.isItalic(run) { intent.insert(.emphasized) }
+      if !intent.isEmpty { piece.inlinePresentationIntent = intent }
+      if let color = color(for: run) { piece.foregroundColor = color }
+      line.append(piece)
     }
-    return text
+  }
+
+  /// Bold when the resolved style says so, or for the semantic header styles
+  /// that games often leave to the reader to embolden.
+  private static func isBold(_ run: StyledText.Run) -> Bool {
+    if run.attributes.fontWeight?.lowercased() == "bold" { return true }
+    return run.style == .header || run.style == .subheader
+  }
+
+  private static func isItalic(_ run: StyledText.Run) -> Bool {
+    switch run.attributes.fontStyle?.lowercased() {
+    case "italic", "oblique": return true
+    default: return run.style == .emphasized
+    }
+  }
+
+  /// A game-specified colour wins (lifted so dark hues stay readable on the dark
+  /// transcript). With no game colour, fall back to the app's own conventions
+  /// for input echo and alerts; otherwise inherit the line's default colour.
+  private func color(for run: StyledText.Run) -> Color? {
+    if let css = run.attributes.color, let parsed = RunColor.parse(css: css) {
+      let lifted = parsed.liftedForDarkBackground()
+      return Color(.sRGB, red: lifted.red, green: lifted.green, blue: lifted.blue)
+    }
+    switch run.style {
+    case .input: return .gray
+    case .alert, .note: return .orange
+    default: return nil
+    }
   }
 }
