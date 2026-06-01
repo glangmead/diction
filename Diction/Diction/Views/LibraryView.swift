@@ -7,20 +7,22 @@ struct LibraryView: View {
   @State private var showingSettings = false
   @State private var showingFileImporter = false
   @State private var importError: String?
-
-  /// Story-file extensions we know how to play. The picker is permissive
-  /// (allows `.data` and `.item`) because most IF extensions aren't
-  /// registered system UTTypes; we validate against this set after pickup.
-  private static let validExtensions: Set<String> = [
-    "z3", "z5", "z8", "zblorb",
-    "ulx", "gblorb", "blb", "blorb"
-  ]
+  @State private var deleteError: String?
 
   var body: some View {
     NavigationStack {
       List(fileManager.stories) { story in
         NavigationLink(value: story) {
           storyRow(story)
+        }
+        .swipeActions(edge: .trailing) {
+          if story.source != .bundled {
+            Button(role: .destructive) {
+              delete(story)
+            } label: {
+              Label("Delete", systemImage: "trash")
+            }
+          }
         }
       }
       .navigationTitle("Library")
@@ -75,6 +77,17 @@ struct LibraryView: View {
       } message: {
         Text(importError ?? "")
       }
+      .alert(
+        "Couldn't delete game",
+        isPresented: Binding(
+          get: { deleteError != nil },
+          set: { if !$0 { deleteError = nil } }
+        )
+      ) {
+        Button("OK") { deleteError = nil }
+      } message: {
+        Text(deleteError ?? "")
+      }
       .overlay {
         if fileManager.stories.isEmpty {
           ContentUnavailableView(
@@ -86,6 +99,16 @@ struct LibraryView: View {
           )
         }
       }
+    }
+  }
+
+  /// Removes a swiped story, surfacing any failure (e.g. the file vanished
+  /// out from under us) in the delete alert rather than silently.
+  private func delete(_ story: StoryFile) {
+    do {
+      try fileManager.deleteStory(story)
+    } catch {
+      deleteError = "Couldn't delete \(story.title). \(error.localizedDescription)"
     }
   }
 
@@ -124,10 +147,12 @@ struct LibraryView: View {
     case .success(let urls):
       guard let url = urls.first else { return }
       let ext = url.pathExtension.lowercased()
-      guard Self.validExtensions.contains(ext) else {
+      // The picker allows `.data`/`.item` (most IF extensions aren't registered
+      // UTTypes), so validate the extension here against the formats we play.
+      guard StoryFile.supportedExtensions.contains(ext) else {
         importError = """
         \(url.lastPathComponent) doesn't look like an interactive-fiction story file. \
-        Supported formats: .z3, .z5, .z8, .zblorb, .ulx, .gblorb, .blorb, .blb.
+        Supported formats: .z1–.z8, .zblorb, .ulx, .gblorb, .blorb, .blb.
         """
         return
       }

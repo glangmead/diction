@@ -36,6 +36,15 @@ final class InterpreterSession {
   /// only cares about "is input wanted?" keeps working.
   var isAwaitingInput: Bool { inputMode != nil }
 
+  /// Current grid (status) windows — e.g. AMFV's mode / location / time / date
+  /// bar — ordered by their on-screen `top` (then id), so any number of them
+  /// stack in the game's intended vertical order. The buffer prose stays in
+  /// `transcript`; these are the fixed-grid panels alongside it, as
+  /// replace-by-row snapshots. Presentation decides visual and audio treatment.
+  var statusWindows: [GridWindowSnapshot] {
+    gridSnapshots.values.sorted { ($0.top, $0.id) < ($1.top, $1.id) }
+  }
+
   /// Vocabulary words from the story file, used to bias speech recognition.
   private(set) var dictionary: Set<String> = []
 
@@ -62,6 +71,14 @@ final class InterpreterSession {
   /// lives) from grids (status line, which clears every turn) so we only
   /// honor `clear` flags on the buffer.
   private var windowTypes: [Int: RemGlkUpdate.WindowType] = [:]
+
+  /// Per-window named-style tables (`.Style_NAME` → attributes) from
+  /// `windows[].styles`, used to resolve each run's effective look.
+  private var windowStyles: [Int: [String: StyleAttributes]] = [:]
+
+  /// Live snapshots of grid (status) windows, keyed by window id and rebuilt
+  /// replace-by-row as updates arrive. Surfaced in id order via `statusWindows`.
+  private var gridSnapshots: [Int: GridWindowSnapshot] = [:]
 
   func load(_ storyURL: URL) async throws {
     guard let detected = try FormatDetector.detect(url: storyURL) else {
@@ -154,30 +171,23 @@ final class InterpreterSession {
   private func apply(_ update: RemGlkUpdate) {
     if let windows = update.windows {
       for window in windows {
-        windowTypes[window.id] = window.type
+        updateWindowMeta(window)
       }
     }
 
     if let content = update.content {
-      for window in content {
-        // RESTORE / RESTART blow away the buffer and redraw the current
-        // state. Without clearing our transcript here, the old play
-        // history piles up under the new state and the voice reads it
-        // all back. Grid clears (status line) are a per-turn no-op and
-        // must not trigger a transcript wipe.
-        if window.clear == true && windowTypes[window.id] == .buffer {
-          transcript.removeAll()
-        }
-        guard let lines = window.text else { continue }
-        for line in lines {
-          guard let runs = line.content, !runs.isEmpty else { continue }
-          let entry = StyledText(from: runs)
-          if line.append == true, var last = transcript.last {
-            last.runs.append(contentsOf: entry.runs)
-            transcript[transcript.count - 1] = last
-          } else {
-            transcript.append(entry)
-          }
+      for windowContent in content {
+        let styleTable = windowStyles[windowContent.id]
+        switch windowTypes[windowContent.id] {
+        case .grid:
+          var snapshot = gridSnapshots[windowContent.id]
+            ?? GridWindowSnapshot(id: windowContent.id, width: 0, height: 0, lines: [])
+          snapshot.apply(content: windowContent, styleTable: styleTable)
+          gridSnapshots[windowContent.id] = snapshot
+        case .buffer:
+          applyBufferContent(windowContent, styleTable: styleTable)
+        default:
+          break   // graphics / pair / blank carry no text we render
         }
       }
     }
@@ -192,6 +202,44 @@ final class InterpreterSession {
     }
 
     transcriptRevision &+= 1
+  }
+
+  /// Records a window's type and named-style table, and for grids captures the
+  /// geometry and resizes its row buffer to match `gridheight`.
+  private func updateWindowMeta(_ window: RemGlkUpdate.Window) {
+    windowTypes[window.id] = window.type
+    if let styles = window.styles { windowStyles[window.id] = styles }
+    guard window.type == .grid else { return }
+    var snapshot = gridSnapshots[window.id]
+      ?? GridWindowSnapshot(id: window.id, width: 0, height: 0, lines: [])
+    if let width = window.gridwidth { snapshot.width = width }
+    if let height = window.gridheight { snapshot.height = height }
+    if let top = window.top { snapshot.top = top }
+    snapshot.resizeRows()
+    gridSnapshots[window.id] = snapshot
+  }
+
+  /// Appends (or in-place merges) a buffer window's lines into the transcript,
+  /// resolving each run against the window's style table. A `clear` here is a
+  /// RESTORE / RESTART redraw — wipe the scrollback so the old play history
+  /// doesn't pile up under the new state (and the voice doesn't reread it).
+  private func applyBufferContent(
+    _ content: RemGlkUpdate.Content, styleTable: [String: StyleAttributes]?
+  ) {
+    if content.clear == true {
+      transcript.removeAll()
+    }
+    guard let lines = content.text else { return }
+    for line in lines {
+      guard let runs = line.content, !runs.isEmpty else { continue }
+      let entry = StyledText(from: runs, styleTable: styleTable)
+      if line.append == true, var last = transcript.last {
+        last.runs.append(contentsOf: entry.runs)
+        transcript[transcript.count - 1] = last
+      } else {
+        transcript.append(entry)
+      }
+    }
   }
 }
 

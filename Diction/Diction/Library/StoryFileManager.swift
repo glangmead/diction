@@ -14,11 +14,6 @@ final class StoryFileManager {
     ("zdungeon", "z5", "Z-Dungeon"),
   ]
 
-  private static let knownExtensions: Set<String> = [
-    "z3", "z5", "z8", "zblorb",
-    "ulx", "gblorb", "blb", "blorb",
-  ]
-
   init() {
     documentsURL = FileManager.default.urls(
       for: .documentDirectory, in: .userDomainMask
@@ -60,6 +55,18 @@ final class StoryFileManager {
     )
   }
 
+  /// Remove an imported or downloaded story from Documents and forget its
+  /// last-played timestamp. Bundled games live in the read-only app bundle, so
+  /// they can't be deleted (and the UI doesn't offer it for them).
+  func deleteStory(_ story: StoryFile) throws {
+    guard story.source != .bundled else { throw StoryFileError.cannotDeleteBundled }
+    try FileManager.default.removeItem(at: story.url)
+    var dates = lastPlayedMap()
+    dates[story.url.lastPathComponent] = nil
+    saveLastPlayedMap(dates)
+    refresh()
+  }
+
   // MARK: - Internals
 
   private func bundledStories() -> [StoryFile] {
@@ -88,7 +95,7 @@ final class StoryFileManager {
     ) else { return [] }
 
     return urls.compactMap { url in
-      guard Self.knownExtensions.contains(
+      guard StoryFile.supportedExtensions.contains(
         url.pathExtension.lowercased()
       ) else { return nil }
       let format = (try? FormatDetector.detect(url: url)) ?? .zMachine
@@ -109,5 +116,16 @@ final class StoryFileManager {
 
   private func saveLastPlayedMap(_ map: [String: Date]) {
     UserDefaults.standard.set(map, forKey: lastPlayedKey)
+  }
+}
+
+nonisolated enum StoryFileError: LocalizedError {
+  case cannotDeleteBundled
+
+  var errorDescription: String? {
+    switch self {
+    case .cannotDeleteBundled:
+      return "Bundled games can't be removed."
+    }
   }
 }
