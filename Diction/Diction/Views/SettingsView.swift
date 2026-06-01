@@ -15,6 +15,10 @@ struct SettingsView: View {
   @AppStorage("kokoroVoiceId") private var kokoroVoiceId: String = "af_heart"
   @AppStorage("kokoroEchoVoiceId") private var kokoroEchoVoiceId: String = "am_onyx"
 
+  // Flowing-text font (defaults must match StyledTextLineView).
+  @AppStorage("readingTypeface") private var readingTypeface = ReadingTypeface.sansSerif.rawValue
+  @AppStorage("readingTextSize") private var readingTextSize = ReadingTextSize.medium.rawValue
+
   /// Count of currently-installed Premium voices, used to surface whether
   /// the user has installed any of Apple's higher-quality voices.
   private let installedPremiumCount: Int = AVSpeechSynthesisVoice.speechVoices()
@@ -26,6 +30,7 @@ struct SettingsView: View {
       Form {
         kokoroSection
         speechSection
+        readingTextSection
         moreVoicesSection
         aboutSection
       }
@@ -137,6 +142,53 @@ struct SettingsView: View {
       return "System Default"
     }
     return "\(voice.name) (\(voice.quality.label))"
+  }
+
+  // MARK: - Reading text section
+
+  private var readingTextSection: some View {
+    Section {
+      Picker("Typeface", selection: $readingTypeface) {
+        ForEach(ReadingTypeface.allCases) { typeface in
+          Text(typeface.label).tag(typeface.rawValue)
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        HStack {
+          Text("Text size")
+          Spacer()
+          Text(currentReadingSizeLabel)
+            .foregroundStyle(.secondary)
+            .font(.callout)
+        }
+        Slider(
+          // Pure step↔Double projection; the Int step in @AppStorage stays the
+          // source of truth for the five discrete sizes.
+          value: Binding(
+            get: { Double(readingTextSize) },
+            set: { readingTextSize = Int($0.rounded()) }
+          ),
+          in: 0...Double(ReadingTextSize.allCases.count - 1),
+          step: 1
+        )
+        .accessibilityLabel("Reading text size")
+        .accessibilityValue(currentReadingSizeLabel)
+      }
+    } header: {
+      Text("Reading Text")
+    } footer: {
+      Text(
+        """
+        Font for the scrolling story text. The status bar stays monospaced. \
+        Size multiplies your device's Dynamic Type setting.
+        """
+      )
+    }
+  }
+
+  private var currentReadingSizeLabel: String {
+    (ReadingTextSize(rawValue: readingTextSize) ?? .medium).label
   }
 
   // MARK: - More voices section

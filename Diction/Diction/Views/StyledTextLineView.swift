@@ -7,11 +7,25 @@ import SwiftUI
 struct StyledTextLineView: View {
   let entry: StyledText
 
+  // Flowing-text font, configurable in Settings (the grid/status windows keep
+  // their own monospaced font). Defaults must match SettingsView's defaults.
+  @AppStorage("readingTypeface") private var typefaceRaw = ReadingTypeface.sansSerif.rawValue
+  @AppStorage("readingTextSize") private var sizeRaw = ReadingTextSize.medium.rawValue
+  // 17 pt body scaled by the device's Dynamic Type setting; the semantic size
+  // step multiplies on top, so the two compound.
+  @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17
+
+  private var readingFont: Font {
+    let typeface = ReadingTypeface(rawValue: typefaceRaw) ?? .sansSerif
+    let multiplier = (ReadingTextSize(rawValue: sizeRaw) ?? .medium).multiplier
+    return .system(size: baseSize * multiplier, design: typeface.design)
+  }
+
   var body: some View {
     entry.runs.reduce(Text("")) { result, run in
       result + styledRun(run)
     }
-    .font(.system(.body, design: .monospaced))
+    .font(readingFont)
     .foregroundStyle(Color(white: 0.92))
     .accessibilityLabel(entry.plainText)
   }
