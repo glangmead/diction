@@ -153,37 +153,72 @@ final class KokoroSpeechEngine: NSObject {
 
   // MARK: - Speech
 
-  /// Synthesize and play `text` in `voice`, sentence-chunked to respect the
-  /// 510-phoneme cap and to start audio sooner. Returns when playback finishes
-  /// or `stop()` is called.
+  /// Synthesize and play `text` in `voice`, one sentence per clip. Sentences are
+  /// synthesized *one ahead*, so each clip's model inference overlaps the
+  /// previous clip's playback instead of falling into the silent gap after it.
+  /// Chunking also keeps each clip's IPA under the 510-phoneme cap and starts
+  /// audio sooner. Returns when playback finishes or `stop()` is called.
   func speak(_ text: String, voice: String, speed: Float) async {
-    guard let manager else { return }
+    guard manager != nil else { return }
     stopped = false
-    for chunk in Self.chunk(text) {
+
+    let chunks = KokoroText.sentences(text)
+    guard !chunks.isEmpty else { return }
+    // bf_/bm_ are the British voice packs; everything else is US.
+    let british = voice.hasPrefix("bf_") || voice.hasPrefix("bm_")
+
+    // Keep exactly one synthesis in flight: await the current clip, kick off the
+    // next, then play the current while the next renders. That overlap is what
+    // removes the per-sentence pause — the old serial synth-then-play loop paid
+    // the model's inference time as silence after every period.
+    var pending = synthesisTask(chunks[0], voice: voice, speed: speed, british: british)
+    for index in chunks.indices {
+      if stopped { pending.cancel(); return }
+      let wav = await pending.value
       if stopped { return }
-      do {
-        let result: KokoroAneSynthesisResult
-        if let phonemizer {
-          // bf_/bm_ are the British voice packs; everything else is US.
-          let british = voice.hasPrefix("bf_") || voice.hasPrefix("bm_")
-          let ipa = try await phonemizer.phonemize(chunk, british: british)
-          print("[kokoro] speed=\(speed) IPA: \(chunk.prefix(24))… -> \(ipa.prefix(80))")
-          result = try await manager.synthesizeFromPhonemesDetailed(ipa, voice: voice, speed: speed)
-        } else {
-          result = try await manager.synthesizeDetailed(text: chunk, voice: voice, speed: speed)
-        }
-        if stopped { return }
-        // Each clip is one sentence, so the model's leading + trailing silence
-        // pads (~290 ms + ~490 ms) would otherwise stack into a ~780 ms gap at
-        // every sentence boundary. Trim each clip to a short controlled tail.
-        let trimmed = KokoroPCM.trimSilence(result.samples, sampleRate: result.sampleRate)
-        let wav = KokoroPCM.wavData(trimmed, sampleRate: result.sampleRate)
-        ensureSessionForPlayback()
-        await play(wav)
-      } catch {
-        // Skip the failed chunk; do not kill the whole pass.
-        print("[kokoro] chunk failed (\(chunk.prefix(40))…): \(error)")
+      if index + 1 < chunks.count {
+        pending = synthesisTask(chunks[index + 1], voice: voice, speed: speed, british: british)
       }
+      guard let wav else { continue }
+      ensureSessionForPlayback()
+      await play(wav)
+    }
+  }
+
+  /// Spawn the synthesis of one sentence off the playback path so it can render
+  /// while the previous clip plays. Inherits the MainActor; the heavy CoreML
+  /// work runs off-main inside the awaited manager call. Errors yield `nil` so a
+  /// bad sentence is skipped rather than aborting the whole narration.
+  private func synthesisTask(
+    _ chunk: String, voice: String, speed: Float, british: Bool
+  ) -> Task<Data?, Never> {
+    Task { [weak self] in
+      guard let self else { return nil }
+      return await self.synthesize(chunk, voice: voice, speed: speed, british: british)
+    }
+  }
+
+  private func synthesize(
+    _ chunk: String, voice: String, speed: Float, british: Bool
+  ) async -> Data? {
+    guard let manager else { return nil }
+    do {
+      let result: KokoroAneSynthesisResult
+      if let phonemizer {
+        let ipa = try await phonemizer.phonemize(chunk, british: british)
+        print("[kokoro] speed=\(speed) IPA: \(chunk.prefix(24))… -> \(ipa.prefix(80))")
+        result = try await manager.synthesizeFromPhonemesDetailed(ipa, voice: voice, speed: speed)
+      } else {
+        result = try await manager.synthesizeDetailed(text: chunk, voice: voice, speed: speed)
+      }
+      // The model pads ~290 ms leading + ~490 ms trailing silence onto each
+      // clip; trim to a short controlled tail so sentence boundaries don't gap.
+      let trimmed = KokoroPCM.trimSilence(result.samples, sampleRate: result.sampleRate)
+      return KokoroPCM.wavData(trimmed, sampleRate: result.sampleRate)
+    } catch {
+      // Skip the failed sentence; do not kill the whole pass.
+      print("[kokoro] chunk failed (\(chunk.prefix(40))…): \(error)")
+      return nil
     }
   }
 
@@ -264,54 +299,6 @@ final class KokoroSpeechEngine: NSObject {
     }
   }
 
-  // MARK: - Chunking
-
-  /// Split text into sentence-ish chunks, hard-wrapping any piece longer than
-  /// `maxChars` at a word boundary so the IPA stays under the 510-phoneme cap.
-  static func chunk(_ text: String, maxChars: Int = 240) -> [String] {
-    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return [] }
-
-    var sentences: [String] = []
-    var current = ""
-    for char in trimmed {
-      current.append(char)
-      if char == "." || char == "!" || char == "?" || char == "\n" {
-        let piece = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !piece.isEmpty { sentences.append(piece) }
-        current = ""
-      }
-    }
-    let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !tail.isEmpty { sentences.append(tail) }
-
-    var result: [String] = []
-    for sentence in sentences where !sentence.isEmpty {
-      if sentence.count <= maxChars {
-        result.append(sentence)
-      } else {
-        result.append(contentsOf: wrap(sentence, maxChars: maxChars))
-      }
-    }
-    return result
-  }
-
-  private static func wrap(_ sentence: String, maxChars: Int) -> [String] {
-    var pieces: [String] = []
-    var line = ""
-    for word in sentence.split(separator: " ") {
-      if line.isEmpty {
-        line = String(word)
-      } else if line.count + 1 + word.count <= maxChars {
-        line += " " + word
-      } else {
-        pieces.append(line)
-        line = String(word)
-      }
-    }
-    if !line.isEmpty { pieces.append(line) }
-    return pieces
-  }
 }
 
 extension KokoroSpeechEngine: AVAudioPlayerDelegate {

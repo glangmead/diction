@@ -113,6 +113,12 @@ final class SpeechRecognizer {
     // suppressed that ducking entirely, so the user's barge-in never finalized.
     try input.setVoiceProcessingEnabled(true)
 
+    // NOTE: do NOT try to silence the `auou/vpio render err: -1` log spew by
+    // connecting the input to `mainMixerNode` (even at `outputVolume = 0`).
+    // Routing the mic into the VPIO output graph kills capture entirely — the
+    // recognizer goes deaf (transcription frozen, no barge-in). The render
+    // error is benign console noise from the unconnected duplex output bus;
+    // capture and barge-in work fine despite it. Leave the output unconnected.
     engine.prepare()
     try engine.start()
     audioEngine = engine
