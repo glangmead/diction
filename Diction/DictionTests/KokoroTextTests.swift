@@ -73,6 +73,43 @@ func genuineBoundariesStillSplit() {
   #expect(out.count == 3)
 }
 
+// Kokoro renders a clip-final terminator (. ? !) as a dangling voiced unit —
+// an audible "uh" after the word, prominent on some voices (e.g. bf_lily).
+// Each chunk is its own clip, so the terminator never attaches to a following
+// word; strip it. Internal punctuation (abbreviations, decimals, commas, and
+// mid-sentence terminators kept by the dialogue-merge) must survive.
+
+@Test("Strips the trailing period so the model doesn't voice it as a dangling syllable")
+func stripsTrailingPeriod() {
+  #expect(KokoroText.sentences("Restored.") == ["Restored"])
+}
+
+@Test("Strips trailing question and exclamation marks")
+func stripsTrailingQuestionAndBang() {
+  #expect(KokoroText.sentences("Are you sure?") == ["Are you sure"])
+  #expect(KokoroText.sentences("Stop!") == ["Stop"])
+}
+
+@Test("Strips a trailing terminator even behind a closing quote")
+func stripsTerminatorBehindQuote() {
+  let out = KokoroText.sentences("He yelled \"stop!\"")
+  #expect(out.count == 1)
+  #expect(!out[0].hasSuffix("!"))
+  #expect(!out[0].hasSuffix("\""))
+  #expect(out[0].contains("stop"))
+}
+
+@Test("Keeps internal punctuation, strips only the trailing terminator")
+func keepsInternalStripsTrailing() {
+  #expect(KokoroText.sentences("Mr. Smith left.") == ["Mr. Smith left"])
+  #expect(KokoroText.sentences("Well, fine...") == ["Well, fine"])
+}
+
+@Test("Each sentence in a multi-sentence pass is stripped")
+func stripsEachSentence() {
+  #expect(KokoroText.sentences("Hello there. How are you?") == ["Hello there", "How are you"])
+}
+
 @Test("Long sentences hard-wrap under the phoneme cap")
 func longSentencesWrap() {
   let long = String(repeating: "word ", count: 200).trimmingCharacters(in: .whitespaces) + "."

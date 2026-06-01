@@ -19,6 +19,12 @@ import NaturalLanguage
 /// each half gets sentence-final intonation. We undo that by merging any piece
 /// whose first letter is lowercase back into the previous one — a lowercase
 /// start marks a continuation, not a new sentence.
+///
+/// Finally each chunk's clip-final terminator (`.`/`?`/`!`/`…` and any closing
+/// quote behind it) is stripped: with one clip per sentence the terminator has
+/// no following word, so Kokoro voices it as a dangling "uh" tail — subtle on
+/// af_heart (~25 ms at 1×) but a loud ~190 ms tail on bf_lily. Internal
+/// punctuation (abbreviations, decimals, commas) is untouched.
 enum KokoroText {
   static func sentences(_ text: String, maxChars: Int = 240) -> [String] {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -45,13 +51,32 @@ enum KokoroText {
 
     var result: [String] = []
     for sentence in pieces {
-      if sentence.count <= maxChars {
-        result.append(sentence)
+      let spoken = strippingTrailingTerminators(sentence)
+      guard !spoken.isEmpty else { continue }
+      if spoken.count <= maxChars {
+        result.append(spoken)
       } else {
-        result.append(contentsOf: wrap(sentence, maxChars: maxChars))
+        result.append(contentsOf: wrap(spoken, maxChars: maxChars))
       }
     }
     return result
+  }
+
+  /// Sentence-terminal punctuation plus the closing quotes/brackets that can sit
+  /// after it. Stripped from the end of a clip so the model isn't handed a
+  /// dangling terminator to voice as an "uh".
+  private static let trailingTerminators: Set<Character> = [
+    ".", "!", "?", "…",
+    "\"", "'", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}",
+    ")", "]", "}", "»"
+  ]
+
+  private static func strippingTrailingTerminators(_ sentence: String) -> String {
+    var end = Substring(sentence)
+    while let last = end.last, last.isWhitespace || trailingTerminators.contains(last) {
+      end = end.dropLast()
+    }
+    return String(end)
   }
 
   /// True when the first cased letter is lowercase — the piece continues the

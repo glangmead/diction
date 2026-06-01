@@ -1,15 +1,23 @@
 import Foundation
 import FluidAudio
 
-// KokoroAudition — a macOS dev tool to audition the app's KokoroPhonemizer.
+// KokoroAudition — a macOS dev tool to audition the app's neural-voice pipeline.
 //
-// Runs the app's `KokoroPhonemizer` (shared into this target by symlink, so
-// edits to the app's copy are picked up here) on a line of text, prints the
-// resulting KokoroAne IPA, then synthesizes it through
-// `KokoroAneManager.synthesizeFromPhonemes` and plays the WAV — the exact IPA
-// path `KokoroSpeechEngine` uses in the app, minus the UI.
+// Shares the app's `KokoroPhonemizer`, `KokoroText`, and `KokoroPCM` by symlink,
+// so edits to the app's copies are picked up here.
 //
-//   KokoroAudition "your text" [--voice af_heart] [--speed 1.0]
+// By default it reproduces the app's pipeline faithfully: `KokoroText.sentences`
+// chunking (sentence split, dialogue-merge, trailing-terminator strip) →
+// per-chunk synth → `KokoroPCM.trimSilence` → concatenate, *no* peak-
+// normalization — the same audio `KokoroSpeechEngine` produces, minus the UI and
+// the real-time inter-clip player gap. Each chunk's text and IPA are printed.
+//
+//   --raw   one phonemize of the whole text + one `synthesizeFromPhonemes`
+//           (normalized WAV) — the old single-pass behavior.
+//   --ipa   synthesize the given IPA directly; bypasses the phonemizer and
+//           segmentation, so it implies --raw.
+//
+//   KokoroAudition "your text" [--voice af_heart] [--speed 1.0] [--raw]
 //                              [--output out.wav] [--no-play] [--bundle <path>]
 
 func fail(_ message: String) -> Never {
@@ -19,8 +27,8 @@ func fail(_ message: String) -> Never {
 
 func usage() -> Never {
   FileHandle.standardError.write(Data("""
-  Usage: KokoroAudition "<text>" [--voice af_heart] [--speed 1.0] \
-  [--output <path.wav>] [--no-play] [--bundle <KokoroModels.bundle>]
+  Usage: KokoroAudition "<text>" [--voice af_heart] [--speed 1.0] [--raw] \
+  [--ipa <phonemes>] [--output <path.wav>] [--no-play] [--bundle <KokoroModels.bundle>]
   """.utf8))
   exit(2)
 }
@@ -34,6 +42,7 @@ var play = true
 var outputPath: String?
 var bundlePath: String?
 var ipaOverride: String?  // --ipa: synthesize this IPA directly, bypassing KokoroPhonemizer
+var raw = false           // --raw: old single phonemize + single synthesize (normalized)
 
 let args = Array(CommandLine.arguments.dropFirst())
 var index = 0
@@ -50,6 +59,7 @@ while index < args.count {
   case "--output", "-o": outputPath = value()
   case "--bundle": bundlePath = value()
   case "--ipa": ipaOverride = value()
+  case "--raw": raw = true
   case "--no-play": play = false
   case "-h", "--help": usage()
   default:
@@ -79,23 +89,42 @@ let output =
   outputPath.map { URL(fileURLWithPath: $0) }
   ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("kokoro-audition.wav")
 
-// MARK: - Phonemize → synthesize → play
+// MARK: - Synthesize → play
 
-let ipa: String
+let manager = KokoroAneManager(variant: .english, directory: bundleRoot)
+// bf_/bm_ are the British voice packs; everything else is US — same as the app.
+let british = voice.hasPrefix("bf_") || voice.hasPrefix("bm_")
+
+let wav: Data
 if let ipaOverride {
-  ipa = ipaOverride  // feed IPA directly, bypassing the phonemizer
+  // Feed IPA directly, bypassing the phonemizer and segmentation.
+  print(ipaOverride)
+  wav = try await manager.synthesizeFromPhonemes(ipaOverride, voice: voice, speed: speed)
 } else {
   guard let phonemizer = await KokoroPhonemizer.load(bundleRoot: bundleRoot) else {
     fail("KokoroPhonemizer failed to load from \(bundleRoot.path)")
   }
-  // bf_/bm_ are the British voice packs; everything else is US.
-  let british = voice.hasPrefix("bf_") || voice.hasPrefix("bm_")
-  ipa = try await phonemizer.phonemize(text, british: british)
+  if raw {
+    // Old single-pass: whole text in one phonemize + one normalized synth.
+    let ipa = try await phonemizer.phonemize(text, british: british)
+    print(ipa)
+    wav = try await manager.synthesizeFromPhonemes(ipa, voice: voice, speed: speed)
+  } else {
+    // App-faithful: chunk → per-chunk synth → trimSilence → concatenate (no norm).
+    let chunks = KokoroText.sentences(text)
+    guard !chunks.isEmpty else { fail("No speakable text after segmentation.") }
+    var samples: [Float] = []
+    var sampleRate = 24_000
+    for (chunkIndex, chunk) in chunks.enumerated() {
+      let ipa = try await phonemizer.phonemize(chunk, british: british)
+      print("[chunk \(chunkIndex + 1)/\(chunks.count)] \"\(chunk)\" -> \(ipa)")
+      let result = try await manager.synthesizeFromPhonemesDetailed(ipa, voice: voice, speed: speed)
+      sampleRate = result.sampleRate
+      samples += KokoroPCM.trimSilence(result.samples, sampleRate: result.sampleRate)
+    }
+    wav = KokoroPCM.wavData(samples, sampleRate: sampleRate)
+  }
 }
-print(ipa)  // stdout: the phoneme string fed to the model
-
-let manager = KokoroAneManager(variant: .english, directory: bundleRoot)
-let wav = try await manager.synthesizeFromPhonemes(ipa, voice: voice, speed: speed)
 try wav.write(to: output)
 FileHandle.standardError.write(
   Data("Wrote \(wav.count) bytes → \(output.path)  (voice=\(voice), speed=\(speed))\n".utf8))
