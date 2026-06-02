@@ -20,12 +20,6 @@ final class InterpreterSession {
   /// Output entries appended over the course of play, in order.
   private(set) var transcript: [StyledText] = []
 
-  /// Monotonic counter bumped on every transcript mutation, including the
-  /// in-place merge path (`line.append == true`) that doesn't change
-  /// `transcript.count`. View code observes this for auto-scroll triggers
-  /// that need to fire on any visible change, not just append events.
-  private(set) var transcriptRevision: Int = 0
-
   /// The kind of input the interpreter is currently blocked waiting for,
   /// or nil while the interpreter is running. Distinguishes line input
   /// (typed sentences) from char input (single keypress like the SPACE
@@ -127,7 +121,6 @@ final class InterpreterSession {
     let clamped = max(0, min(count, transcript.count))
     guard clamped < transcript.count else { return }
     transcript = Array(transcript.suffix(clamped))
-    transcriptRevision &+= 1
   }
 
   /// Sends a parser command and applies the next interpreter update.
@@ -136,7 +129,6 @@ final class InterpreterSession {
     guard inputMode == .line else { return }
     inputMode = nil
     transcript.append(.userInput(command))
-    transcriptRevision &+= 1
     do {
       apply(try await host.send(line: command, gen: currentGen, window: currentWindow))
     } catch {
@@ -154,7 +146,6 @@ final class InterpreterSession {
     guard inputMode == .char else { return }
     inputMode = nil
     transcript.append(.userInput(displayLabel(forKey: value)))
-    transcriptRevision &+= 1
     do {
       apply(try await host.send(char: value, gen: currentGen, window: currentWindow))
     } catch {
@@ -208,8 +199,6 @@ final class InterpreterSession {
       currentGen = update.gen ?? currentGen
       inputMode = nil
     }
-
-    transcriptRevision &+= 1
   }
 
   /// Route one window's content: the primary buffer feeds the `transcript`, a

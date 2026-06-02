@@ -158,41 +158,25 @@ struct GameView: View {
   // MARK: - Transcript rendering
 
   private var transcriptView: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 2) {
-          if isLoading {
-            ProgressView()
-              .padding()
-          }
-          ForEach(session.transcript) { entry in
-            StyledTextLineView(entry: entry)
-              .id(entry.id)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-          // Zero-height anchor at the true end of the LazyVStack.
-          Color.clear
-            .frame(height: 1)
-            .id(Self.bottomAnchorID)
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 2) {
+        if isLoading {
+          ProgressView()
+            .padding()
         }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
-      }
-      .onChange(of: session.transcriptRevision) {
-        // Defer one runloop tick so LazyVStack has a chance to lay out
-        // any newly-appended (or in-place-merged) content before we
-        // measure where the bottom actually is.
-        Task { @MainActor in
-          try? await Task.sleep(for: .milliseconds(16))
-          withAnimation {
-            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-          }
+        ForEach(session.transcript) { entry in
+          StyledTextLineView(entry: entry)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
       }
+      .padding(.horizontal)
+      .padding(.vertical, 12)
     }
+    // Stick to the bottom as content grows. Reliable under LazyVStack, unlike
+    // measuring and `scrollTo`-ing a trailing anchor — off-screen rows aren't
+    // laid out, so that approach undershoots the true bottom.
+    .defaultScrollAnchor(.bottom)
   }
-
-  private static let bottomAnchorID = "diction-transcript-bottom"
 
   // MARK: - Secondary buffer windows (bottom panels)
 
