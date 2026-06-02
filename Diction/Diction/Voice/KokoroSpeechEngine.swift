@@ -151,6 +151,20 @@ final class KokoroSpeechEngine: NSObject {
     }
   }
 
+  /// US for `af_`/`am_`, GB for `bf_`/`bm_`.
+  nonisolated static func isBritish(voiceID: String) -> Bool {
+    voiceID.hasPrefix("bf_") || voiceID.hasPrefix("bm_")
+  }
+
+  /// Build the misaki lexicon for `british` off the main actor so the first
+  /// narration doesn't pay the ~240ms JSON parse on the main thread. Idempotent
+  /// (the cache builds once); a no-op until the phonemizer has loaded, which is
+  /// what sets `DataResourcesUtil.bundleURL`.
+  func prewarmLexicon(british: Bool) async {
+    guard phonemizer != nil else { return }
+    await Task.detached(priority: .utility) { _ = LexiconCache.lexicon(british: british) }.value
+  }
+
   // MARK: - Speech
 
   /// Synthesize and play `text` in `voice`, one sentence per clip. Sentences are
@@ -165,7 +179,7 @@ final class KokoroSpeechEngine: NSObject {
     let chunks = KokoroText.sentences(text)
     guard !chunks.isEmpty else { return }
     // bf_/bm_ are the British voice packs; everything else is US.
-    let british = voice.hasPrefix("bf_") || voice.hasPrefix("bm_")
+    let british = Self.isBritish(voiceID: voice)
 
     // Keep exactly one synthesis in flight: await the current clip, kick off the
     // next, then play the current while the next renders. That overlap is what

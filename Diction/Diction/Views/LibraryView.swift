@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
   @Bindable var fileManager: StoryFileManager
+  @Environment(VoiceWarmer.self) private var voiceWarmer
   @State private var showingIFDB = false
   @State private var showingSettings = false
   @State private var showingFileImporter = false
@@ -26,6 +27,14 @@ struct LibraryView: View {
         }
       }
       .navigationTitle("Library")
+      .safeAreaInset(edge: .top, spacing: 0) { voicePreparingBanner }
+      .animation(.default, value: voiceWarmer.readiness)
+      .task { voiceWarmer.warmUpIfNeeded() }
+      .onChange(of: voiceWarmer.readiness) { old, new in
+        if old == .preparing, new == .ready {
+          AccessibilityNotification.Announcement("Narration voice ready").post()
+        }
+      }
       .navigationDestination(for: StoryFile.self) { story in
         GameView(storyFile: story)
           .onAppear { fileManager.recordPlayed(story) }
@@ -109,6 +118,34 @@ struct LibraryView: View {
       try fileManager.deleteStory(story)
     } catch {
       deleteError = "Couldn't delete \(story.title). \(error.localizedDescription)"
+    }
+  }
+
+  /// Inform-only, full-width banner shown only while the neural voice is loading
+  /// (in practice, the first launch after an update — the model's ANE compile is
+  /// cached thereafter). It slides away the moment the voice is ready; nothing is
+  /// shown for the system voice or when neural is unavailable, since there's no
+  /// load to wait on. The `.preparing`-only `if` means `safeAreaInset` reserves
+  /// no space otherwise.
+  @ViewBuilder
+  private var voicePreparingBanner: some View {
+    if voiceWarmer.readiness == .preparing {
+      HStack(spacing: 10) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Preparing the neural voice for narration…")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 10)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(.bar)
+      .overlay(alignment: .bottom) { Divider() }
+      .transition(.move(edge: .top).combined(with: .opacity))
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Preparing narration voice")
     }
   }
 

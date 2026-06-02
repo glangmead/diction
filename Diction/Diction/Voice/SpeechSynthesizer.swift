@@ -21,7 +21,10 @@ final class SpeechSynthesizer: NSObject {
 
   /// Spike: neural Kokoro engine. Used when `useKokoro` is on and the model
   /// loads; otherwise the AVSpeechSynthesizer path below runs unchanged.
-  private let kokoro = KokoroSpeechEngine()
+  /// Replaceable so a game can adopt the app-level shared engine warmed on the
+  /// library (see `useSharedEngine`); defaults to a private instance for any
+  /// path that never adopts one (e.g. tests).
+  private(set) var kokoro = KokoroSpeechEngine()
 
   override init() {
     super.init()
@@ -115,6 +118,13 @@ final class SpeechSynthesizer: NSObject {
   func warmUpKokoro() {
     guard useKokoro else { return }
     Task { await kokoro.prepareIfNeeded() }
+  }
+
+  /// Adopt the app-level shared engine (warmed on the library by `VoiceWarmer`)
+  /// so opening a game reuses the already-loaded model instead of starting a
+  /// second cold load. Call before any narration.
+  func useSharedEngine(_ engine: KokoroSpeechEngine) {
+    kokoro = engine
   }
 
   // MARK: - Kokoro pass

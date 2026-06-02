@@ -49,6 +49,12 @@ final class VoiceCoordinator {
     self.session = session
   }
 
+  /// Route narration through the app-level shared neural engine warmed by
+  /// `VoiceWarmer`, so the model loaded on the library carries into the game.
+  func useSharedVoice(_ warmer: VoiceWarmer) {
+    synthesizer.useSharedEngine(warmer.engine)
+  }
+
   // MARK: - Internal state
 
   private var voiceAuthChecked = false

@@ -10,8 +10,7 @@ final class StoryFileManager {
   private let lastPlayedKey = "lastPlayed"
 
   private static let bundledGames: [(name: String, ext: String, title: String)] = [
-    ("minizork", "z3", "Mini-Zork I"),
-    ("zdungeon", "z5", "Z-Dungeon"),
+    ("devours", "z5", "All Things Devours")
   ]
 
   init() {

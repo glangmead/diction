@@ -48,7 +48,7 @@ final public class EnglishG2P {
   ) {
     self.british = british
     self.tagger = NLTagger(tagSchemes: [.nameTypeOrLexicalClass])
-    self.lexicon = Lexicon(british: british)
+    self.lexicon = LexiconCache.lexicon(british: british)
     self.fallback = fallback
     self.unk = unk
   }

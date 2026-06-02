@@ -1,7 +1,10 @@
 import Foundation
 import NaturalLanguage
 
-final class Lexicon {
+// All stored properties are immutable after `init` (golds/silvers are read-only
+// `[String: Any]` never mutated by `transcribe`; `num2Words` is a value type in
+// a `let`), so a single shared instance is safe to read across actors.
+final class Lexicon: @unchecked Sendable {
   static let usVocab: Set<Character> = Set("AIOWYbdfhijklmnpstuvwzæðŋɑɔəɛɜɡɪɹɾʃʊʌʒʤʧˈˌθᵊᵻʔ")
   static let gbVocab: Set<Character> = Set("AIQWYabdfhijklmnpstuvwzðŋɑɒɔəɛɜɡɪɹʃʊʌʒʤʧˈˌːθᵊ")
   static let lexiconOrdinals: [Int] = [39, 45] + Array(65...90) + Array(97...122)

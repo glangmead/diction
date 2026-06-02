@@ -4,11 +4,13 @@ import UniformTypeIdentifiers
 @main
 struct DictionApp: App {
   @State private var fileManager = StoryFileManager()
+  @State private var voiceWarmer = VoiceWarmer()
   @State private var importError: String?
 
   var body: some Scene {
     WindowGroup {
       LibraryView(fileManager: fileManager)
+        .environment(voiceWarmer)
         .onOpenURL(perform: handleOpen)
         .alert(
           "Couldn't import file",
