@@ -31,7 +31,15 @@ struct KokoroPhonemizer: Sendable {
     // Resolve each OOV word with the neural G2P, normalized to misaki's tokens.
     var cache: [String: String] = [:]
     for word in collector.words {
-      let raw = (try? await oov.phonemize(word)) ?? ""
+      let raw: String
+      if let remainder = Self.mcNameRemainder(word) {
+        // The neural G2P swallows the consonant in "McB…"/"McW…" (it hears
+        // "McCain"); pronouncing the remainder alone keeps it, prefixed /mək/.
+        let rest = (try? await oov.phonemize(remainder)) ?? ""
+        raw = rest.isEmpty ? "" : "mək" + rest
+      } else {
+        raw = (try? await oov.phonemize(word)) ?? ""
+      }
       cache[word] = raw
         .replacingOccurrences(of: "ɾ", with: "T")
         .replacingOccurrences(of: "ʔ", with: "t")
@@ -40,6 +48,23 @@ struct KokoroPhonemizer: Sendable {
     // Pass 2: final phonemization, fallback served from the cache.
     return EnglishG2P(british: british, fallback: { token in (cache[token.text] ?? "", 1) })
       .phonemize(text: text).0
+  }
+
+  /// `Mc` + an uppercase consonant other than C/K/Q is a Scottish/Irish surname
+  /// whose consonant is pronounced (`McBain` = /mək/ + "Bain"). C/K/Q merge into a
+  /// single /k/ (`McKay`, `McCain`) and vowels attach to the `c` (`McArthur`), so
+  /// those are left to the neural G2P, which gets them right.
+  private static let mcSplitInitials: Set<Character> = [
+    "B", "D", "F", "G", "H", "J", "L", "M", "N", "P", "R", "S", "T", "V", "W", "X", "Y", "Z"
+  ]
+
+  /// For a `Mc`-name whose consonant the neural G2P would otherwise swallow,
+  /// returns the part after `Mc` (`"McBain"` → `"Bain"`); nil otherwise.
+  static func mcNameRemainder(_ word: String) -> String? {
+    guard word.hasPrefix("Mc"), word.count > 2 else { return nil }
+    let initial = word[word.index(word.startIndex, offsetBy: 2)]
+    guard mcSplitInitials.contains(initial) else { return nil }
+    return String(word.dropFirst(2))
   }
 }
 
