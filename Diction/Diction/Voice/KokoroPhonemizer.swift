@@ -23,6 +23,8 @@ struct KokoroPhonemizer: Sendable {
 
   /// Text → KokoroAne IPA. `british` selects the GB dictionaries.
   func phonemize(_ text: String, british: Bool) async throws -> String {
+    let text = Self.applySpecialCasing(text)
+
     // Pass 1: run misaki to discover words the lexicon missed.
     let collector = OOVCollector()
     _ = EnglishG2P(british: british, fallback: { token in collector.add(token.text); return ("", 1) })
@@ -65,6 +67,14 @@ struct KokoroPhonemizer: Sendable {
     let initial = word[word.index(word.startIndex, offsetBy: 2)]
     guard mcSplitInitials.contains(initial) else { return nil }
     return String(word.dropFirst(2))
+  }
+
+  /// All-caps words the G2P would otherwise spell out letter-by-letter
+  /// (Z·O·R·K) but which are real titles. Whole-word and case-sensitive, so
+  /// "ZORK" → "Zork" while "Zork", "zork", and "ZORKMID" are left alone. Add more
+  /// `.replacing(_:with:)` lines here as other titles turn up.
+  static func applySpecialCasing(_ text: String) -> String {
+    text.replacing(#/\bZORK\b/#, with: "Zork")
   }
 }
 

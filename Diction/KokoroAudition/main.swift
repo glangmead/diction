@@ -16,9 +16,14 @@ import FluidAudio
 //           (normalized WAV) — the old single-pass behavior.
 //   --ipa   synthesize the given IPA directly; bypasses the phonemizer and
 //           segmentation, so it implies --raw.
+//   --file  read the text from a file instead of the positional argument,
+//           preserving newlines exactly (path "-" reads stdin). Use this to feed
+//           a whole multi-line chunk the way a game would; pair with --raw to see
+//           whether embedded newlines reach the phonemizer.
 //
 //   KokoroAudition "your text" [--voice af_heart] [--speed 1.0] [--raw]
-//                              [--output out.wav] [--no-play] [--bundle <path>]
+//                              [--file chunk.txt] [--output out.wav] [--no-play]
+//                              [--bundle <path>]
 
 func fail(_ message: String) -> Never {
   FileHandle.standardError.write(Data((message + "\n").utf8))
@@ -28,7 +33,8 @@ func fail(_ message: String) -> Never {
 func usage() -> Never {
   FileHandle.standardError.write(Data("""
   Usage: KokoroAudition "<text>" [--voice af_heart] [--speed 1.0] [--raw] \
-  [--ipa <phonemes>] [--output <path.wav>] [--no-play] [--bundle <KokoroModels.bundle>]
+  [--ipa <phonemes>] [--file <path | ->] [--output <path.wav>] [--no-play] \
+  [--bundle <KokoroModels.bundle>]
   """.utf8))
   exit(2)
 }
@@ -43,6 +49,7 @@ var outputPath: String?
 var bundlePath: String?
 var ipaOverride: String?  // --ipa: synthesize this IPA directly, bypassing KokoroPhonemizer
 var raw = false           // --raw: old single phonemize + single synthesize (normalized)
+var filePath: String?     // --file: read text from a file (or "-" for stdin), newlines intact
 
 let args = Array(CommandLine.arguments.dropFirst())
 var index = 0
@@ -59,6 +66,7 @@ while index < args.count {
   case "--output", "-o": outputPath = value()
   case "--bundle": bundlePath = value()
   case "--ipa": ipaOverride = value()
+  case "--file": filePath = value()
   case "--raw": raw = true
   case "--no-play": play = false
   case "-h", "--help": usage()
@@ -70,7 +78,23 @@ while index < args.count {
   index += 1
 }
 
-guard let text, !text.isEmpty else { usage() }
+// Resolve the input: a file (or stdin via "-") overrides the positional text,
+// preserving newlines exactly so they reach the pipeline as a game's chunk would.
+let inputText: String?
+if let filePath {
+  if text != nil { fail("Provide either inline text or --file, not both.") }
+  if filePath == "-" {
+    inputText = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
+  } else if let contents = try? String(contentsOf: URL(fileURLWithPath: filePath), encoding: .utf8) {
+    inputText = contents
+  } else {
+    fail("Could not read text file at \(filePath)")
+  }
+} else {
+  inputText = text
+}
+
+guard let text = inputText, !text.isEmpty else { usage() }
 
 // KokoroModels.bundle: default to the repo copy, derived from this source
 // file's location (#filePath → …/Diction/KokoroAudition/main.swift), overridable.
