@@ -45,6 +45,13 @@ final class InterpreterSession {
     gridSnapshots.values.sorted { ($0.top, $0.id) < ($1.top, $1.id) }
   }
 
+  /// Secondary (non-primary) buffer windows ordered by on-screen `top`, surfaced
+  /// as panels beside the transcript — Blue Lacuna's bottom "Topics" window the
+  /// `keywords` screen opens sits below the prose at `top` 47.
+  var secondaryBufferWindows: [BufferWindowSnapshot] {
+    secondaryBuffers.values.sorted { ($0.top, $0.id) < ($1.top, $1.id) }
+  }
+
   /// Vocabulary words from the story file, used to bias speech recognition.
   private(set) var dictionary: Set<String> = []
 
@@ -79,6 +86,15 @@ final class InterpreterSession {
   /// Live snapshots of grid (status) windows, keyed by window id and rebuilt
   /// replace-by-row as updates arrive. Surfaced in id order via `statusWindows`.
   private var gridSnapshots: [Int: GridWindowSnapshot] = [:]
+
+  /// The main story buffer window (the first buffer id seen). Only it drives the
+  /// `transcript`; other buffer windows are surfaced as panels so their `clear`
+  /// can't wipe the prose — Blue Lacuna's `keywords` screen opens a second one.
+  private var primaryBufferID: Int?
+
+  /// Non-primary buffer windows (e.g. Blue Lacuna's bottom "Topics" panel),
+  /// keyed by window id and surfaced via `secondaryBufferWindows`.
+  private var secondaryBuffers: [Int: BufferWindowSnapshot] = [:]
 
   func load(_ storyURL: URL) async throws {
     guard let detected = try FormatDetector.detect(url: storyURL) else {
@@ -173,22 +189,14 @@ final class InterpreterSession {
       for window in windows {
         updateWindowMeta(window)
       }
+      // RemGlk lists the full window set on any arrangement change, so any id
+      // missing here was closed — e.g. Blue Lacuna's keyword panel after "0".
+      pruneWindows(keeping: Set(windows.map(\.id)))
     }
 
     if let content = update.content {
       for windowContent in content {
-        let styleTable = windowStyles[windowContent.id]
-        switch windowTypes[windowContent.id] {
-        case .grid:
-          var snapshot = gridSnapshots[windowContent.id]
-            ?? GridWindowSnapshot(id: windowContent.id, width: 0, height: 0, lines: [])
-          snapshot.apply(content: windowContent, styleTable: styleTable)
-          gridSnapshots[windowContent.id] = snapshot
-        case .buffer:
-          applyBufferContent(windowContent, styleTable: styleTable)
-        default:
-          break   // graphics / pair / blank carry no text we render
-        }
+        applyContent(windowContent)
       }
     }
 
@@ -204,12 +212,44 @@ final class InterpreterSession {
     transcriptRevision &+= 1
   }
 
+  /// Route one window's content: the primary buffer feeds the `transcript`, a
+  /// grid feeds its status snapshot, and any other buffer feeds a panel snapshot.
+  private func applyContent(_ windowContent: RemGlkUpdate.Content) {
+    let styleTable = windowStyles[windowContent.id]
+    switch windowTypes[windowContent.id] {
+    case .grid:
+      var snapshot = gridSnapshots[windowContent.id]
+        ?? GridWindowSnapshot(id: windowContent.id, width: 0, height: 0, lines: [])
+      snapshot.apply(content: windowContent, styleTable: styleTable)
+      gridSnapshots[windowContent.id] = snapshot
+    case .buffer:
+      if primaryBufferID == nil { primaryBufferID = windowContent.id }
+      if windowContent.id == primaryBufferID {
+        applyBufferContent(windowContent, styleTable: styleTable)
+      } else {
+        var snapshot = secondaryBuffers[windowContent.id]
+          ?? BufferWindowSnapshot(id: windowContent.id)
+        snapshot.apply(content: windowContent, styleTable: styleTable)
+        secondaryBuffers[windowContent.id] = snapshot
+      }
+    default:
+      break   // graphics / pair / blank carry no text we render
+    }
+  }
+
   /// Records a window's type and named-style table, and for grids captures the
   /// geometry and resizes its row buffer to match `gridheight`.
   private func updateWindowMeta(_ window: RemGlkUpdate.Window) {
     windowTypes[window.id] = window.type
     if let styles = window.styles { windowStyles[window.id] = styles }
-    guard window.type == .grid else { return }
+    switch window.type {
+    case .grid: updateGridMeta(window)
+    case .buffer: updateBufferMeta(window)
+    default: break
+    }
+  }
+
+  private func updateGridMeta(_ window: RemGlkUpdate.Window) {
     var snapshot = gridSnapshots[window.id]
       ?? GridWindowSnapshot(id: window.id, width: 0, height: 0, lines: [])
     if let width = window.gridwidth { snapshot.width = width }
@@ -219,6 +259,28 @@ final class InterpreterSession {
     gridSnapshots[window.id] = snapshot
   }
 
+  /// The first buffer window is the main story window → `transcript`; the rest
+  /// become panels. Geometry is in 1×1 cells, so `height` is a line count.
+  private func updateBufferMeta(_ window: RemGlkUpdate.Window) {
+    if primaryBufferID == nil { primaryBufferID = window.id }
+    guard window.id != primaryBufferID else { return }
+    var snapshot = secondaryBuffers[window.id] ?? BufferWindowSnapshot(id: window.id)
+    if let top = window.top { snapshot.top = top }
+    if let height = window.height { snapshot.height = height }
+    secondaryBuffers[window.id] = snapshot
+  }
+
+  /// Drop tracked state for windows the interpreter has closed. RemGlk includes
+  /// the complete window set whenever it changes, so any id not in `liveIDs` is
+  /// gone — its snapshot, type, and style table go with it.
+  private func pruneWindows(keeping liveIDs: Set<Int>) {
+    windowTypes = windowTypes.filter { liveIDs.contains($0.key) }
+    windowStyles = windowStyles.filter { liveIDs.contains($0.key) }
+    gridSnapshots = gridSnapshots.filter { liveIDs.contains($0.key) }
+    secondaryBuffers = secondaryBuffers.filter { liveIDs.contains($0.key) }
+    if let primary = primaryBufferID, !liveIDs.contains(primary) { primaryBufferID = nil }
+  }
+
   /// Appends (or in-place merges) a buffer window's lines into the transcript,
   /// resolving each run against the window's style table. A `clear` here is a
   /// RESTORE / RESTART redraw — wipe the scrollback so the old play history
@@ -226,20 +288,7 @@ final class InterpreterSession {
   private func applyBufferContent(
     _ content: RemGlkUpdate.Content, styleTable: [String: StyleAttributes]?
   ) {
-    if content.clear == true {
-      transcript.removeAll()
-    }
-    guard let lines = content.text else { return }
-    for line in lines {
-      guard let runs = line.content, !runs.isEmpty else { continue }
-      let entry = StyledText(from: runs, styleTable: styleTable)
-      if line.append == true, var last = transcript.last {
-        last.runs.append(contentsOf: entry.runs)
-        transcript[transcript.count - 1] = last
-      } else {
-        transcript.append(entry)
-      }
-    }
+    StyledText.applyBufferContent(content, styleTable: styleTable, into: &transcript)
   }
 }
 

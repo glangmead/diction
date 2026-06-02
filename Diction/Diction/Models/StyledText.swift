@@ -33,7 +33,7 @@ extension StyledText {
   /// against the owning window's named-style table — the run's `css_styles`
   /// overrides the table. Pass `nil` when no table is known; per-run css still
   /// resolves over an empty base.
-  init(from remGlkRuns: [RemGlkUpdate.TextRun], styleTable: [String: StyleAttributes]?) {
+  nonisolated init(from remGlkRuns: [RemGlkUpdate.TextRun], styleTable: [String: StyleAttributes]?) {
     self.id = UUID()
     self.runs = remGlkRuns.map { run in
       let named = run.style.flatMap { styleTable?[".Style_\($0.rawValue)"] } ?? StyleAttributes()
@@ -46,7 +46,7 @@ extension StyledText {
     }
   }
 
-  init(from remGlkRuns: [RemGlkUpdate.TextRun]) {
+  nonisolated init(from remGlkRuns: [RemGlkUpdate.TextRun]) {
     self.init(from: remGlkRuns, styleTable: nil)
   }
 
@@ -59,7 +59,31 @@ extension StyledText {
 
   /// True for entries created via `userInput(_:)`. Used by views that want
   /// to slice the transcript into "command + response" chunks.
-  var isUserInput: Bool {
+  nonisolated var isUserInput: Bool {
     runs.allSatisfy { $0.style == .input }
+  }
+
+  /// Apply a buffer window's content update to a line array: a `clear` wipes it
+  /// (a RESTORE/RESTART redraw for the transcript, a window redraw for a
+  /// secondary panel), then each line is appended — or merged onto the previous
+  /// line when its `append` flag is set. Shared by the transcript and secondary
+  /// buffer windows so the accumulation can't drift between the two.
+  nonisolated static func applyBufferContent(
+    _ content: RemGlkUpdate.Content,
+    styleTable: [String: StyleAttributes]?,
+    into lines: inout [StyledText]
+  ) {
+    if content.clear == true { lines.removeAll() }
+    guard let text = content.text else { return }
+    for line in text {
+      guard let runs = line.content, !runs.isEmpty else { continue }
+      let entry = StyledText(from: runs, styleTable: styleTable)
+      if line.append == true, var last = lines.last {
+        last.runs.append(contentsOf: entry.runs)
+        lines[lines.count - 1] = last
+      } else {
+        lines.append(entry)
+      }
+    }
   }
 }

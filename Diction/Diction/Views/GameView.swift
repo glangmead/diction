@@ -32,6 +32,8 @@ struct GameView: View {
           .padding()
       }
 
+      bottomBufferPanels
+
       if session.isAwaitingInput && loadError == nil {
         inputBar
       }
@@ -234,6 +236,17 @@ struct GameView: View {
   }
 
   private static let bottomAnchorID = "diction-transcript-bottom"
+
+  // MARK: - Secondary buffer windows (bottom panels)
+
+  /// Non-primary buffer windows (e.g. Blue Lacuna's "Topics" window) shown as
+  /// panels above the input bar, ordered by their on-screen `top`.
+  @ViewBuilder
+  private var bottomBufferPanels: some View {
+    ForEach(session.secondaryBufferWindows) { window in
+      BufferWindowPanelView(window: window)
+    }
+  }
 
   // MARK: - Input bar
 
