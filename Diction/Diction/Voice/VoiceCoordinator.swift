@@ -166,6 +166,9 @@ final class VoiceCoordinator {
        let command = parseCoordinatorCommand(String(lower.dropFirst(wake.count))) {
       return .coordinator(command)
     }
+    // A bare utterance while narrating is dropped — whether the game wants a
+    // line or a single key, only "<wake> …" commands interrupt narration. The
+    // recognizer would otherwise mistake the narration audio for input.
     return isNarrating ? .ignore : .game
   }
 
@@ -297,15 +300,24 @@ final class VoiceCoordinator {
     }
   }
 
+  /// Spoken number words → digits, so a single-key menu like Blue Lacuna's
+  /// keyword screen ("press 0–5") is answerable by voice. Bare digits ("0") fall
+  /// through to the single-character path below.
+  private static let digitWords: [String: String] = [
+    "zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9"
+  ]
+
   /// Maps a free-form spoken utterance to a single Glk character-input
-  /// value: "space" → " ", "yes" → "y", "return"/"enter" → "return", etc.
-  private static func characterFromUtterance(_ utterance: String) -> String {
+  /// value: "space" → " ", "yes" → "y", "zero" → "0", "return"/"enter" → "return".
+  static func characterFromUtterance(_ utterance: String) -> String {
     let lower = utterance.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     if lower.contains("space") { return " " }
     if lower.contains("return") || lower.contains("enter") { return "return" }
     if lower.contains("escape") { return "escape" }
     if lower == "yes" || lower == "y" || lower.hasPrefix("yes ") { return "y" }
     if lower == "no" || lower == "n" || lower.hasPrefix("no ") { return "n" }
+    if let digit = digitWords[lower] { return digit }
     return String(lower.first(where: { !$0.isWhitespace }) ?? " ")
   }
 

@@ -14,10 +14,10 @@
     {
       "layers" : [
         {
-          "image-name" : "Image 5.heif",
-          "name" : "Image 5",
+          "image-name" : "Image 9.heif",
+          "name" : "Image 9",
           "position" : {
-            "scale" : 2,
+            "scale" : 1.8,
             "translation-in-points" : [
               0,
               0
@@ -25,26 +25,13 @@
           }
         },
         {
-          "fill-specializations" : [
-            {
-              "value" : {
-                "solid" : "extended-gray:1.00000,1.00000"
-              }
-            },
-            {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "extended-gray:0.25000,1.00000"
-              }
-            }
-          ],
-          "image-name" : "Image 4.heif",
-          "name" : "Image 4",
+          "image-name" : "Image.heif",
+          "name" : "Image",
           "position" : {
-            "scale" : 2.1,
+            "scale" : 2,
             "translation-in-points" : [
               0,
-              1
+              0
             ]
           }
         }

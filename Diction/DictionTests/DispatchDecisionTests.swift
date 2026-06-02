@@ -56,6 +56,25 @@ struct DispatchDecisionTests {
 }
 
 @MainActor
+@Suite("Character from utterance")
+struct CharacterFromUtteranceTests {
+  @Test("spoken digit words and bare digits map to digit characters")
+  func digits() {
+    #expect(VoiceCoordinator.characterFromUtterance("zero") == "0")
+    #expect(VoiceCoordinator.characterFromUtterance("five") == "5")
+    #expect(VoiceCoordinator.characterFromUtterance("nine") == "9")
+    #expect(VoiceCoordinator.characterFromUtterance("0") == "0")
+  }
+
+  @Test("control words still map")
+  func controlWords() {
+    #expect(VoiceCoordinator.characterFromUtterance("space") == " ")
+    #expect(VoiceCoordinator.characterFromUtterance("yes") == "y")
+    #expect(VoiceCoordinator.characterFromUtterance("no") == "n")
+  }
+}
+
+@MainActor
 @Suite("Wake-word normalization")
 struct WakeWordTests {
   @Test("nil falls back to game") func nilFallback() {
