@@ -14,6 +14,7 @@ struct StyledTextLineView: View {
   // 17 pt body scaled by the device's Dynamic Type setting; the semantic size
   // step multiplies on top, so the two compound.
   @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17
+  @Environment(\.colorScheme) private var colorScheme
 
   private var readingFont: Font {
     let typeface = ReadingTypeface(rawValue: typefaceRaw) ?? .sansSerif
@@ -24,7 +25,7 @@ struct StyledTextLineView: View {
   var body: some View {
     Text(attributedLine)
       .font(readingFont)
-      .foregroundStyle(Color(white: 0.92))
+      .foregroundStyle(.gameText)
       .accessibilityLabel(entry.plainText)
   }
 
@@ -64,8 +65,8 @@ struct StyledTextLineView: View {
   /// for input echo and alerts; otherwise inherit the line's default colour.
   private func color(for run: StyledText.Run) -> Color? {
     if let css = run.attributes.color, let parsed = RunColor.parse(css: css) {
-      let lifted = parsed.liftedForDarkBackground()
-      return Color(.sRGB, red: lifted.red, green: lifted.green, blue: lifted.blue)
+      let legible = parsed.legible(onDark: colorScheme == .dark)
+      return Color(.sRGB, red: legible.red, green: legible.green, blue: legible.blue)
     }
     switch run.style {
     case .input: return .gray

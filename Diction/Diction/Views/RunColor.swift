@@ -21,19 +21,26 @@ nonisolated struct RunColor: Equatable, Sendable {
   /// Perceptual luma (Rec. 709 weights), 0...1.
   var luma: Double { 0.2126 * red + 0.7152 * green + 0.0722 * blue }
 
-  /// Lift toward white until `luma` reaches `minimumLuma`, so a dark game colour
-  /// stays readable on the dark transcript; bright colours pass through. Because
-  /// luma is linear in the channels, blending toward white by
-  /// `(min - luma)/(1 - luma)` lands exactly on the floor while keeping hue.
-  func liftedForDarkBackground(minimumLuma: Double = 0.5) -> RunColor {
-    let current = luma
-    guard current < minimumLuma else { return self }
-    let amount = (minimumLuma - current) / (1 - current)
-    return RunColor(
-      red: red + (1 - red) * amount,
-      green: green + (1 - green) * amount,
-      blue: blue + (1 - blue) * amount
-    )
+  /// Nudge a game-specified colour so it stays readable against the transcript
+  /// background, preserving hue. On a **dark** background, lift dim colours
+  /// toward white up to `threshold` luma; on a **light** background, darken
+  /// bright colours toward black down to it. Colours already on the readable
+  /// side pass through. Luma is linear in the channels, so each blend lands
+  /// exactly on the threshold.
+  func legible(onDark: Bool, threshold: Double = 0.5) -> RunColor {
+    if onDark {
+      guard luma < threshold else { return self }
+      let amount = (threshold - luma) / (1 - luma)
+      return RunColor(
+        red: red + (1 - red) * amount,
+        green: green + (1 - green) * amount,
+        blue: blue + (1 - blue) * amount
+      )
+    } else {
+      guard luma > threshold else { return self }
+      let scale = threshold / luma
+      return RunColor(red: red * scale, green: green * scale, blue: blue * scale)
+    }
   }
 
   // MARK: - Parsing helpers

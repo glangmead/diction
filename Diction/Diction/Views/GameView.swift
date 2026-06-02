@@ -15,10 +15,6 @@ struct GameView: View {
   @State private var showingSettings = false
   @FocusState private var inputFocused: Bool
 
-  /// Opaque header colour shared by the nav bar and the status bar so they read
-  /// as one block, set apart from the transcript below.
-  private static let headerColor = Color(white: 0.12)
-
   var body: some View {
     VStack(spacing: 0) {
       statusBar
@@ -37,12 +33,11 @@ struct GameView: View {
         inputBar
       }
     }
-    .background(Color(white: 0.08))
+    .background(.gameBackground)
     .navigationTitle(storyFile.title)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarColorScheme(.dark, for: .navigationBar)
     .toolbarBackground(.visible, for: .navigationBar)
-    .toolbarBackground(Self.headerColor, for: .navigationBar)
+    .toolbarBackground(Color(.gameSurface), for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarLeading) { settingsButton }
       ToolbarItem(placement: .topBarTrailing) { voiceLoadingIndicator }
@@ -207,7 +202,7 @@ struct GameView: View {
         .foregroundStyle(.gray)
       TextField("", text: $commandText)
         .font(.system(.body, design: .monospaced))
-        .foregroundStyle(Color(white: 0.9))
+        .foregroundStyle(.gameText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .focused($inputFocused)
@@ -217,7 +212,7 @@ struct GameView: View {
     }
     .padding(.horizontal)
     .padding(.vertical, 8)
-    .background(Color(white: 0.12))
+    .background(.gameSurface)
   }
 
   /// Shown when the interpreter is blocked on a single-keypress input
@@ -231,7 +226,7 @@ struct GameView: View {
         .foregroundStyle(.gray)
       TextField("y / n / 1 / …", text: $charInputText)
         .font(.system(.body, design: .monospaced))
-        .foregroundStyle(Color(white: 0.9))
+        .foregroundStyle(.gameText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .focused($inputFocused)
@@ -250,7 +245,7 @@ struct GameView: View {
     }
     .padding(.horizontal)
     .padding(.vertical, 8)
-    .background(Color(white: 0.12))
+    .background(.gameSurface)
   }
 
   // MARK: - Typed dispatch

@@ -29,9 +29,9 @@ struct BufferWindowPanelView: View {
       .padding(.vertical, 8)
     }
     .frame(maxHeight: maxHeight)
-    .background(Color(white: 0.11))
+    .background(.gameSurface)
     .overlay(alignment: .top) {
-      Rectangle().fill(Color(white: 0.32)).frame(height: 1)
+      Rectangle().fill(.gameSurfaceBorder).frame(height: 1)
     }
     .accessibilityElement(children: .contain)
   }

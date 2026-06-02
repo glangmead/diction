@@ -14,8 +14,6 @@ struct StatusWindowView: View {
   @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17
   @State private var availableWidth: CGFloat = 0
 
-  private static let headerColor = Color(white: 0.12)
-  private static let borderColor = Color(white: 0.32)
   /// SF Mono's advance is ≈0.6 em; underestimating keeps text from overflowing,
   /// and `minimumScaleFactor` covers any remainder.
   private static let monospaceAdvance: CGFloat = 0.6
@@ -38,13 +36,13 @@ struct StatusWindowView: View {
       }
     }
     .font(.system(size: fontSize, design: .monospaced))
-    .foregroundStyle(Color(white: 0.9))
+    .foregroundStyle(.gameText)
     .padding(.horizontal, 8)
     .padding(.vertical, 6)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Self.headerColor)
+    .background(.gameSurface)
     .overlay(alignment: .bottom) {
-      Rectangle().fill(Self.borderColor).frame(height: 1)
+      Rectangle().fill(.gameSurfaceBorder).frame(height: 1)
     }
     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
     .animation(.easeInOut(duration: 0.2), value: fontSize)

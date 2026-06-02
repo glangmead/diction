@@ -26,17 +26,31 @@ struct RunColorTests {
     #expect(RunColor(red: 0, green: 1, blue: 0).luma > RunColor(red: 0, green: 0, blue: 1).luma)
   }
 
-  @Test("Dark colours lift to the floor and keep their hue; bright colours pass through")
-  func lift() {
-    let floor = 0.5
-    let liftedBlack = RunColor(red: 0, green: 0, blue: 0).liftedForDarkBackground(minimumLuma: floor)
-    #expect(abs(liftedBlack.luma - floor) < 0.0001)
+  @Test("On a dark background, dim colours lift to the threshold and keep their hue")
+  func legibleOnDark() {
+    let threshold = 0.5
+    let black = RunColor(red: 0, green: 0, blue: 0).legible(onDark: true, threshold: threshold)
+    #expect(abs(black.luma - threshold) < 0.0001)
 
-    let liftedBlue = RunColor(red: 0, green: 0, blue: 1).liftedForDarkBackground(minimumLuma: floor)
-    #expect(abs(liftedBlue.luma - floor) < 0.0001)
-    #expect(liftedBlue.blue > liftedBlue.red)  // still bluish
+    let blue = RunColor(red: 0, green: 0, blue: 1).legible(onDark: true, threshold: threshold)
+    #expect(abs(blue.luma - threshold) < 0.0001)
+    #expect(blue.blue > blue.red)  // still bluish
 
     let bright = RunColor(red: 0.9, green: 0.9, blue: 0.9)
-    #expect(bright.liftedForDarkBackground(minimumLuma: floor) == bright)
+    #expect(bright.legible(onDark: true, threshold: threshold) == bright)  // already readable
+  }
+
+  @Test("On a light background, bright colours darken to the threshold and keep their hue")
+  func legibleOnLight() {
+    let threshold = 0.5
+    let white = RunColor(red: 1, green: 1, blue: 1).legible(onDark: false, threshold: threshold)
+    #expect(abs(white.luma - threshold) < 0.0001)
+
+    let yellow = RunColor(red: 1, green: 1, blue: 0).legible(onDark: false, threshold: threshold)
+    #expect(abs(yellow.luma - threshold) < 0.0001)
+    #expect(yellow.blue < yellow.red)  // still yellowish
+
+    let dim = RunColor(red: 0.1, green: 0.1, blue: 0.1)
+    #expect(dim.legible(onDark: false, threshold: threshold) == dim)  // already readable
   }
 }
