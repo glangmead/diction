@@ -18,7 +18,6 @@ struct GameView: View {
   /// Opaque header colour shared by the nav bar and the status bar so they read
   /// as one block, set apart from the transcript below.
   private static let headerColor = Color(white: 0.12)
-  private static let borderColor = Color(white: 0.32)
 
   var body: some View {
     VStack(spacing: 0) {
@@ -146,56 +145,14 @@ struct GameView: View {
   @ViewBuilder
   private var statusBar: some View {
     ForEach(session.statusWindows.filter(Self.hasContent)) { window in
-      statusWindowView(window)
+      StatusWindowView(window: window)
     }
-  }
-
-  private func statusWindowView(_ window: GridWindowSnapshot) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
-      ForEach(Array(window.lines.enumerated()), id: \.offset) { _, row in
-        Text(Self.rowText(row, width: window.width))
-          .lineLimit(1)
-          .minimumScaleFactor(0.2)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-    .font(.system(size: 13, design: .monospaced))
-    .foregroundStyle(Color(white: 0.9))
-    .padding(.horizontal, 8)
-    .padding(.vertical, 6)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Self.headerColor)
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(Self.borderColor)
-        .frame(height: 1)
-    }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(Self.statusAccessibilityLabel(window))
   }
 
   /// True if any row carries non-whitespace content, so we don't show an
   /// empty bar.
-  private static func hasContent(_ window: GridWindowSnapshot) -> Bool {
+  nonisolated private static func hasContent(_ window: GridWindowSnapshot) -> Bool {
     window.lines.contains { !$0.plainText.allSatisfy(\.isWhitespace) }
-  }
-
-  /// One grid row as exactly `width` monospaced columns — trailing-padded so
-  /// every row has the same character count, which makes `minimumScaleFactor`
-  /// shrink them all by the same factor and keeps the columns aligned.
-  private static func rowText(_ row: StyledText, width: Int) -> String {
-    let text = row.plainText
-    if text.count >= width { return String(text.prefix(width)) }
-    return text + String(repeating: " ", count: width - text.count)
-  }
-
-  /// VoiceOver label: collapse the positional padding to single spaces and
-  /// join rows, so the bar reads as "Mode: Communications Mode, Time: 7:07pm, …".
-  private static func statusAccessibilityLabel(_ window: GridWindowSnapshot) -> String {
-    let rows = window.lines
-      .map { $0.plainText.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-      .filter { !$0.isEmpty }
-    return "Status. " + rows.joined(separator: ", ")
   }
 
   // MARK: - Transcript rendering
