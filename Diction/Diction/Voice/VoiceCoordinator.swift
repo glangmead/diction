@@ -262,19 +262,18 @@ final class VoiceCoordinator {
       && Self.stateResetCommands.contains(payload.lowercased())
     let shouldNarrate = isSpeaking
 
-    let indexBefore = session.transcript.count
     switch mode {
     case .line: await session.send(payload)
     case .char: await session.sendCharacter(payload)
     }
 
-    let grew = session.transcript.count >= indexBefore
-    let responseEntries = grew
-      ? Array(session.transcript[indexBefore...].filter { !$0.isUserInput })
-      : []
+    // The session computes the response window itself — it's the only layer that
+    // knows whether the update redrew the screen, which invalidates any pre-send
+    // transcript index (AMFV clears + redraws after its intro keypress).
+    let responseEntries = session.lastResponse
 
-    if isStateReset && grew {
-      session.trimTranscript(keepingSuffix: session.transcript.count - indexBefore)
+    if isStateReset && !responseEntries.isEmpty {
+      session.trimTranscript(keepingSuffix: session.transcript.count - session.lastResponseStart)
     }
 
     if shouldNarrate && !isStateReset {

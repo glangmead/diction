@@ -20,6 +20,23 @@ final class InterpreterSession {
   /// Output entries appended over the course of play, in order.
   private(set) var transcript: [StyledText] = []
 
+  /// The buffer entries the interpreter produced in response to the most recent
+  /// `send` / `sendCharacter`, with the input echo and — when the update redrew
+  /// the screen (a `clear`) — the wiped scrollback excluded. This is the
+  /// authoritative narration payload: only the session knows a redraw happened,
+  /// and slicing the transcript by a pre-send index silently skips the response's
+  /// first lines when it does (AMFV clears and redraws after its intro keypress).
+  private(set) var lastResponse: [StyledText] = []
+
+  /// Transcript index where `lastResponse` begins — 0 after a redraw, otherwise
+  /// the input echo's index. Used to trim scrollback after RESTORE / RESTART.
+  private(set) var lastResponseStart = 0
+
+  /// Count of primary-buffer `clear`s applied. A send compares this across its
+  /// update to tell whether the screen was redrawn, even though the fresh content
+  /// then lands at a lower index than the pre-send transcript.
+  private var transcriptClears = 0
+
   /// The kind of input the interpreter is currently blocked waiting for,
   /// or nil while the interpreter is running. Distinguishes line input
   /// (typed sentences) from char input (single keypress like the SPACE
@@ -128,12 +145,15 @@ final class InterpreterSession {
   func send(_ command: String) async {
     guard inputMode == .line else { return }
     inputMode = nil
+    let echoIndex = transcript.count
     transcript.append(.userInput(command))
+    let clearsBefore = transcriptClears
     do {
       apply(try await host.send(line: command, gen: currentGen, window: currentWindow))
     } catch {
       lastError = "send failed: \(error)"
     }
+    recordResponse(echoIndex: echoIndex, clearsBefore: clearsBefore)
   }
 
   /// Sends a single Glk character event. Used when the interpreter
@@ -145,12 +165,15 @@ final class InterpreterSession {
   func sendCharacter(_ value: String) async {
     guard inputMode == .char else { return }
     inputMode = nil
+    let echoIndex = transcript.count
     transcript.append(.userInput(displayLabel(forKey: value)))
+    let clearsBefore = transcriptClears
     do {
       apply(try await host.send(char: value, gen: currentGen, window: currentWindow))
     } catch {
       lastError = "send failed: \(error)"
     }
+    recordResponse(echoIndex: echoIndex, clearsBefore: clearsBefore)
   }
 
   /// Tears down the emglken instance when leaving the game. Async to match the
@@ -277,7 +300,34 @@ final class InterpreterSession {
   private func applyBufferContent(
     _ content: RemGlkUpdate.Content, styleTable: [String: StyleAttributes]?
   ) {
+    if content.clear == true { transcriptClears += 1 }
     StyledText.applyBufferContent(content, styleTable: styleTable, into: &transcript)
+  }
+
+  /// Capture the narration window for the just-applied input. A redraw (`clear`)
+  /// during the update wiped the echo and prior scrollback, so the response is
+  /// the whole current transcript; otherwise it runs from the echo (the update's
+  /// first line may have merged onto it) to the end.
+  private func recordResponse(echoIndex: Int, clearsBefore: Int) {
+    let window = Self.responseWindow(
+      transcript: transcript,
+      echoIndex: echoIndex,
+      didClear: transcriptClears != clearsBefore
+    )
+    lastResponseStart = window.start
+    lastResponse = window.entries
+  }
+
+  /// Pure narration-window computation, split out so it can be tested without a
+  /// live interpreter. `start` is the transcript index the response begins at —
+  /// 0 after a redraw, else the echo index — and `entries` is the slice from
+  /// there with the input echoes removed.
+  nonisolated static func responseWindow(
+    transcript: [StyledText], echoIndex: Int, didClear: Bool
+  ) -> (start: Int, entries: [StyledText]) {
+    let start = didClear ? 0 : echoIndex
+    guard start < transcript.count else { return (start, []) }
+    return (start, Array(transcript[start...].filter { !$0.isUserInput }))
   }
 }
 
