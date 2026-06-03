@@ -14,17 +14,24 @@ struct LibraryView: View {
 
   var body: some View {
     NavigationStack {
-      List(fileManager.stories) { story in
-        row(for: story)
-          .swipeActions(edge: .trailing) {
-            if story.source != .bundled {
-              Button(role: .destructive) {
-                delete(story)
-              } label: {
-                Label("Delete", systemImage: "trash")
+      List {
+        ForEach(fileManager.stories) { story in
+          row(for: story)
+            .swipeActions(edge: .trailing) {
+              if story.source != .bundled {
+                Button(role: .destructive) {
+                  delete(story)
+                } label: {
+                  Label("Delete", systemImage: "trash")
+                }
               }
             }
+        }
+        if store.entitlementResolved && !store.isFullVersion {
+          Section {
+            LibraryUnlockRow { showingPaywall = true }
           }
+        }
       }
       .navigationTitle("Library")
       // A large title collapses to an empty band under a top `safeAreaInset`,
