@@ -18,6 +18,6 @@ enum NarrationInputPrompt {
   /// wake word (caller passes `VoiceCoordinator.wakeWord`, which normalizes
   /// empty → "game"), so a custom wake word appears in the interrupt hint.
   static func message(wakeWord: String) -> String {
-    "(Narrating. Say “\(wakeWord) stop” to interrupt.)"
+    "(Narrating)"
   }
 }

@@ -13,11 +13,11 @@ struct NarrationInputPromptTests {
 
   @Test("message names the default wake word and how to interrupt")
   func defaultMessage() {
-    #expect(NarrationInputPrompt.message(wakeWord: "game") == "(narrating — say “game stop”)")
+    #expect(NarrationInputPrompt.message(wakeWord: "game") == "(Narrating. Say “game stop” to interrupt.)")
   }
 
   @Test("message honors a custom wake word")
   func customMessage() {
-    #expect(NarrationInputPrompt.message(wakeWord: "computer") == "(narrating — say “computer stop”)")
+    #expect(NarrationInputPrompt.message(wakeWord: "computer") == "(Narrating. Say “computer stop” to interrupt.)")
   }
 }

@@ -35,6 +35,16 @@ final class SpeechRecognizer {
   private var silenceTask: Task<Void, Never>?
   private let silenceInterval: Duration = .milliseconds(1200)
 
+  /// Schedules the next cycle after a backoff when the recognizer is thrashing
+  /// (erroring before it can capture audio). Cancelled on stop.
+  private var restartTask: Task<Void, Never>?
+  /// Run of consecutive cold/empty cycles; drives the restart backoff so a
+  /// failing recognizer can't busy-loop `beginCycle`. See `RecognitionRestartPolicy`.
+  private var consecutiveFastFailures = 0
+  private let clock = ContinuousClock()
+  /// When the current cycle began, to measure its duration on end.
+  private var cycleStart: ContinuousClock.Instant?
+
   init(locale: Locale = Locale(identifier: "en-US")) {
     recognizer = SFSpeechRecognizer(locale: locale)
   }
@@ -60,6 +70,7 @@ final class SpeechRecognizer {
   func startContinuous(contextualStringsProvider: @MainActor @escaping () -> [String]) {
     guard !inContinuous else { return }
     inContinuous = true
+    consecutiveFastFailures = 0
     self.contextualStringsProvider = contextualStringsProvider
     do {
       try startEngine()
@@ -75,6 +86,8 @@ final class SpeechRecognizer {
     inContinuous = false
     contextualStringsProvider = nil
     silenceTask?.cancel()
+    restartTask?.cancel()
+    consecutiveFastFailures = 0
     audioEngine?.inputNode.removeTap(onBus: 0)
     request?.endAudio()
     task?.finish()
@@ -153,6 +166,7 @@ final class SpeechRecognizer {
 
     transcription = ""
     isListening = true
+    cycleStart = clock.now
 
     task = recognizer.recognitionTask(with: req) { [weak self] result, error in
       guard let self else { return }
@@ -219,10 +233,38 @@ final class SpeechRecognizer {
       onUtterance?(final)
     }
 
-    if inContinuous {
+    guard inContinuous else {
+      isListening = false
+      return
+    }
+
+    // Re-arm the next cycle, but throttle when the recognizer is thrashing —
+    // erroring before it can capture audio (cold on-device model right after
+    // engine start, or a Simulator with no on-device model). Restarting such a
+    // cold/empty cycle instantly busy-loops the request hundreds of times a
+    // second and destroys the user's first utterance; a duration-aware backoff
+    // stops that while keeping healthy listening instant. See RecognitionRestartPolicy.
+    let duration = cycleStart?.duration(to: clock.now) ?? .seconds(1)
+    let producedText = !final.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    if RecognitionRestartPolicy.isFastFailure(producedText: producedText, duration: duration) {
+      consecutiveFastFailures += 1
+    } else {
+      consecutiveFastFailures = 0
+    }
+
+    let delay = RecognitionRestartPolicy.restartDelay(consecutiveFastFailures: consecutiveFastFailures)
+    if delay == .zero {
       beginCycle()
     } else {
-      isListening = false
+      restartTask?.cancel()
+      restartTask = Task { [weak self] in
+        try? await Task.sleep(for: delay)
+        if Task.isCancelled { return }
+        await MainActor.run {
+          guard let self, self.inContinuous else { return }
+          self.beginCycle()
+        }
+      }
     }
   }
 }
