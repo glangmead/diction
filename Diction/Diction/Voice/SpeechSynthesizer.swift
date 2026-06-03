@@ -42,8 +42,8 @@ final class SpeechSynthesizer: NSObject {
         isStopped = false
         isSpeaking = true
         defer { isSpeaking = false }
-        // A distinct voice (not pitch) marks the echo as the app, not the game.
-        await kokoro.speak(command, voice: kokoroEchoVoice, speed: kokoroSpeed)
+        // One voice for everything: echoes use the same neural voice as narration.
+        await kokoro.speak(command, voice: kokoroGameVoice, speed: kokoroSpeed)
         return
       }
     }
@@ -171,15 +171,7 @@ final class SpeechSynthesizer: NSObject {
   private var kokoroGameVoice: String {
     let id = UserDefaults.standard.string(forKey: "kokoroVoiceId") ?? ""
     let stored = id.isEmpty ? "af_heart" : id
-    return DemoPolicy.effectiveKokoroVoice(stored, role: .game, fullVersion: isFullVersion())
-  }
-
-  /// A different voice for command echoes so "you said: go north" is audibly the
-  /// app, not the game.
-  private var kokoroEchoVoice: String {
-    let id = UserDefaults.standard.string(forKey: "kokoroEchoVoiceId") ?? ""
-    let stored = id.isEmpty ? "am_michael" : id
-    return DemoPolicy.effectiveKokoroVoice(stored, role: .echo, fullVersion: isFullVersion())
+    return DemoPolicy.effectiveKokoroVoice(stored, fullVersion: isFullVersion())
   }
 
   /// Kokoro speed from the shared Settings rate, so `faster` / `slower` and the

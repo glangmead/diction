@@ -9,8 +9,6 @@ nonisolated enum DemoPolicy {
   static let demoKokoroVoiceIDs: Set<String> =
     ["af_heart", "am_michael", "bf_emma", "bm_george"]
 
-  enum VoiceRole { case game, echo }
-
   /// Demo plays only bundled games; full plays anything.
   static func isPlayable(_ story: StoryFile, fullVersion: Bool) -> Bool {
     fullVersion || story.source == .bundled
@@ -22,19 +20,10 @@ nonisolated enum DemoPolicy {
     fullVersion || demoKokoroVoiceIDs.contains(id)
   }
 
-  /// `stored` if unlocked, else the role's free fallback — so demo never narrates
-  /// with a paid voice even if a locked ID is somehow stored (e.g. entitlement
-  /// lost after a refund). `af_heart` is the game default; `am_michael` contrasts
-  /// as the echo voice.
-  static func effectiveKokoroVoice(
-    _ stored: String,
-    role: VoiceRole,
-    fullVersion: Bool
-  ) -> String {
-    if isKokoroVoiceUnlocked(stored, fullVersion: fullVersion) { return stored }
-    switch role {
-    case .game: return "af_heart"
-    case .echo: return "am_michael"
-    }
+  /// `stored` if unlocked, else the free default `af_heart` — so demo never
+  /// narrates with a paid voice even if a locked ID is somehow stored (e.g.
+  /// entitlement lost after a refund).
+  static func effectiveKokoroVoice(_ stored: String, fullVersion: Bool) -> String {
+    isKokoroVoiceUnlocked(stored, fullVersion: fullVersion) ? stored : "af_heart"
   }
 }

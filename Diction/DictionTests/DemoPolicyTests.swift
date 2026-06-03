@@ -41,11 +41,10 @@ struct DemoPolicyTests {
     #expect(DemoPolicy.isKokoroVoiceUnlocked("am_onyx", fullVersion: true))
   }
 
-  @Test("Effective voice falls back per role when locked in demo")
+  @Test("Effective voice falls back to a free default when locked in demo")
   func effectiveVoice() {
-    #expect(DemoPolicy.effectiveKokoroVoice("am_onyx", role: .game, fullVersion: false) == "af_heart")
-    #expect(DemoPolicy.effectiveKokoroVoice("am_onyx", role: .echo, fullVersion: false) == "am_michael")
-    #expect(DemoPolicy.effectiveKokoroVoice("bf_emma", role: .game, fullVersion: false) == "bf_emma")
-    #expect(DemoPolicy.effectiveKokoroVoice("am_onyx", role: .echo, fullVersion: true) == "am_onyx")
+    #expect(DemoPolicy.effectiveKokoroVoice("am_onyx", fullVersion: false) == "af_heart")
+    #expect(DemoPolicy.effectiveKokoroVoice("bf_emma", fullVersion: false) == "bf_emma")
+    #expect(DemoPolicy.effectiveKokoroVoice("am_onyx", fullVersion: true) == "am_onyx")
   }
 }
