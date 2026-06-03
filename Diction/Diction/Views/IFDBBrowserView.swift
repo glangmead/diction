@@ -27,18 +27,16 @@ struct IFDBBrowserView: View {
         }
         .searchable(text: $searchText, prompt: "Search IFDB")
         .onSubmit(of: .search) { performSearch() }
+        .onChange(of: searchText) { _, newValue in
+          // Clearing the field returns the user to the curated landing list.
+          if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            results = []
+            errorMessage = nil
+          }
+        }
         .toolbar {
           ToolbarItem(placement: .cancellationAction) {
             Button("Done") { dismiss() }
-          }
-        }
-        .overlay {
-          if results.isEmpty && !isSearching && searchText.isEmpty {
-            ContentUnavailableView(
-              "Search IFDB",
-              systemImage: "magnifyingglass",
-              description: Text("Search for interactive fiction by title or author.")
-            )
           }
         }
         .alert(
@@ -63,6 +61,8 @@ struct IFDBBrowserView: View {
         systemImage: "exclamationmark.triangle",
         description: Text(message)
       )
+    } else if searchText.isEmpty && results.isEmpty {
+      IFDBCuratedListView { selected = $0 }
     } else {
       List(results) { result in
         resultRow(result)

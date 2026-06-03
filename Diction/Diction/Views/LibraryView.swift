@@ -68,13 +68,25 @@ struct LibraryView: View {
           Button {
             showingFileImporter = true
           } label: {
-            Image(systemName: "folder.badge.plus")
+            // The nav-bar toolbar collapses a Label/systemImage button to
+            // icon-only; a custom HStack label renders both icon and title.
+            HStack(spacing: 4) {
+              Image(systemName: "folder.badge.plus")
+              Text("Add")
+            }
           }
-          .accessibilityLabel("Add from Files")
+          .accessibilityLabel("Add file")
         }
         ToolbarItem(placement: .topBarTrailing) {
-          Button("Search IFDB") {
+          Button {
             showingIFDB = true
+          } label: {
+            // The nav-bar toolbar collapses a Label/systemImage button to
+            // icon-only; a custom HStack label renders both icon and title.
+            HStack(spacing: 4) {
+              Image(systemName: "magnifyingglass")
+              Text("Find")
+            }
           }
         }
       }
