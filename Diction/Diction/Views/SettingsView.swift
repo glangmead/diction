@@ -22,7 +22,7 @@ struct SettingsView: View {
         VoiceSettingsSection()
         accessibilityVoicesSection
         readingTextSection
-        aboutSection
+        AcknowledgementsSection()
       }
       .navigationTitle("Settings")
       .toolbar {
@@ -116,21 +116,5 @@ struct SettingsView: View {
     Enhanced or Premium to download it. Once installed, it will appear in \
     the Accessibility voice picker above.
     """
-  }
-
-  // MARK: - About
-
-  private var aboutSection: some View {
-    Section("About") {
-      LabeledContent("Z-machine interpreter") {
-        Text("Bocfel (MIT)").foregroundStyle(.secondary)
-      }
-      LabeledContent("Glulx interpreter") {
-        Text("Glulxe (MIT)").foregroundStyle(.secondary)
-      }
-      LabeledContent("Glk implementation") {
-        Text("RemGlk-rs (MIT)").foregroundStyle(.secondary)
-      }
-    }
   }
 }
