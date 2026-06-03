@@ -69,9 +69,9 @@ nonisolated struct IFDBGameDetail: Sendable, Codable {
     ifdb?.coverart?.url.flatMap { URL(string: $0) }
   }
 
-  /// The blurb with HTML entities decoded for display.
+  /// The blurb as plain text — IFDB stores it as HTML (tags + entities).
   var descriptionText: String? {
-    bibliographic?.description.map(decodeHTMLEntities)
+    bibliographic?.description.map(plainText(fromIFDBHTML:))
   }
 
   /// Human label for the runtime format ("Z-machine", "Glulx", or the raw
@@ -146,17 +146,87 @@ func starRatingText(_ rating: Double?) -> String? {
   return String(rating)
 }
 
-/// Decodes the handful of HTML entities IFDB uses in prose fields. `&amp;` is
-/// resolved last so an encoded entity like `&amp;quot;` survives as `&quot;`
-/// rather than collapsing to a quote.
-func decodeHTMLEntities(_ string: String) -> String {
-  var result = string
-  for (entity, replacement) in [
-    ("&quot;", "\""), ("&#34;", "\""),
-    ("&apos;", "'"), ("&#39;", "'"),
-    ("&lt;", "<"), ("&gt;", ">")
-  ] {
-    result = result.replacingOccurrences(of: entity, with: replacement)
-  }
-  return result.replacingOccurrences(of: "&amp;", with: "&")
+/// Renders the HTML that IFDB stores in prose fields into clean plain text for a
+/// SwiftUI `Text`. IFDB blurbs carry real markup — `<br>`, `<p>`, `<i>`, `<a>`,
+/// `<ul><li>` — and entity-encoded characters like `&#039;`, none of which a raw
+/// `Text` would render. Structural tags become line breaks (list items become
+/// bullets), inline tags are dropped, then entities are decoded and whitespace
+/// tidied.
+func plainText(fromIFDBHTML html: String) -> String {
+  guard html.contains("<") || html.contains("&") else { return html }
+  let regex: NSString.CompareOptions = [.regularExpression, .caseInsensitive]
+  var text = html
+  // `\n` here is a literal newline scalar, not a backslash escape, so it's safe
+  // as a regex-replacement template (which only treats `$` and `\` specially).
+  text = text.replacingOccurrences(of: "<\\s*br\\s*/?\\s*>", with: "\n", options: regex)
+  text = text.replacingOccurrences(of: "<\\s*li\\b[^>]*>", with: "\n\u{2022} ", options: regex)
+  // Block boundaries (not <li>; its closing tag is dropped by the strip below so
+  // each item stays single-spaced).
+  text = text.replacingOccurrences(
+    of: "<\\s*/?\\s*(p|div|ul|ol|h[1-6]|blockquote|tr|table)\\b[^>]*>",
+    with: "\n", options: regex
+  )
+  text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: [.regularExpression])
+  text = decodeHTMLEntities(text)
+  text = text.replacingOccurrences(of: "[ \\t]+\\n", with: "\n", options: [.regularExpression])
+  text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: [.regularExpression])
+  return text.trimmingCharacters(in: .whitespacesAndNewlines)
 }
+
+/// Decodes HTML character entities — decimal (`&#039;`), hex (`&#xE9;`), and a
+/// common named set (`&amp;`, `&mdash;`, …) — in a single left-to-right pass.
+/// One pass means a double-encoded `&amp;#039;` resolves only its outer `&amp;`,
+/// surviving as the literal text `&#039;` rather than collapsing to `'`. A `&`
+/// that doesn't open a recognized entity (and any unknown `&name;`) is left
+/// untouched, so "AT&T" stays "AT&T".
+func decodeHTMLEntities(_ string: String) -> String {
+  guard string.contains("&") else { return string }
+  var result = ""
+  result.reserveCapacity(string.count)
+  var index = string.startIndex
+  while index < string.endIndex {
+    guard string[index] == "&",
+          let semicolon = string[index...].firstIndex(of: ";"),
+          string.distance(from: index, to: semicolon) <= 12 else {
+      result.append(string[index])
+      index = string.index(after: index)
+      continue
+    }
+    let body = String(string[string.index(after: index)..<semicolon])
+    if let decoded = decodeHTMLEntityBody(body) {
+      result.append(decoded)
+      index = string.index(after: semicolon)
+    } else {
+      result.append(string[index])
+      index = string.index(after: index)
+    }
+  }
+  return result
+}
+
+/// Decodes the inside of a single `&…;` entity (no ampersand or semicolon).
+/// Returns nil for anything unrecognized so the caller can leave it literal.
+private func decodeHTMLEntityBody(_ body: String) -> String? {
+  if body.hasPrefix("#") {
+    let digits = body.dropFirst()
+    let value: UInt32? = (digits.first == "x" || digits.first == "X")
+      ? UInt32(digits.dropFirst(), radix: 16)
+      : UInt32(digits, radix: 10)
+    guard let value, let scalar = Unicode.Scalar(value) else { return nil }
+    return String(scalar)
+  }
+  return htmlNamedEntities[body]
+}
+
+/// Named entities common in IFDB prose. The decimal/hex path covers the long
+/// tail, so this only needs the names IFDB actually emits unencoded.
+private let htmlNamedEntities: [String: String] = [
+  "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
+  "mdash": "—", "ndash": "–", "hellip": "…", "bull": "•", "middot": "·",
+  "lsquo": "\u{2018}", "rsquo": "\u{2019}", "ldquo": "\u{201C}", "rdquo": "\u{201D}",
+  "copy": "©", "reg": "®", "trade": "™", "deg": "°", "times": "×",
+  "eacute": "é", "egrave": "è", "ecirc": "ê", "agrave": "à", "acirc": "â",
+  "uuml": "ü", "ouml": "ö", "auml": "ä", "iuml": "ï", "euml": "ë",
+  "ntilde": "ñ", "ccedil": "ç", "szlig": "ß", "oslash": "ø", "aring": "å",
+  "frac12": "½", "frac14": "¼", "pound": "£", "euro": "€", "cent": "¢"
+]
