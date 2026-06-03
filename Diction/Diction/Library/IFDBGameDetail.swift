@@ -69,9 +69,10 @@ nonisolated struct IFDBGameDetail: Sendable, Codable {
     ifdb?.coverart?.url.flatMap { URL(string: $0) }
   }
 
-  /// The blurb as plain text — IFDB stores it as HTML (tags + entities).
-  var descriptionText: String? {
-    bibliographic?.description.map(plainText(fromIFDBHTML:))
+  /// The blurb as Markdown — IFDB stores it as HTML (tags + entities); the
+  /// detail view renders this through `AttributedString(markdown:)`.
+  var descriptionMarkdown: String? {
+    bibliographic?.description.map(markdown(fromIFDBHTML:))
   }
 
   /// Human label for the runtime format ("Z-machine", "Glulx", or the raw
@@ -146,31 +147,95 @@ func starRatingText(_ rating: Double?) -> String? {
   return String(rating)
 }
 
-/// Renders the HTML that IFDB stores in prose fields into clean plain text for a
-/// SwiftUI `Text`. IFDB blurbs carry real markup — `<br>`, `<p>`, `<i>`, `<a>`,
-/// `<ul><li>` — and entity-encoded characters like `&#039;`, none of which a raw
-/// `Text` would render. Structural tags become line breaks (list items become
-/// bullets), inline tags are dropped, then entities are decoded and whitespace
-/// tidied.
-func plainText(fromIFDBHTML html: String) -> String {
-  guard html.contains("<") || html.contains("&") else { return html }
-  let regex: NSString.CompareOptions = [.regularExpression, .caseInsensitive]
-  var text = html
-  // `\n` here is a literal newline scalar, not a backslash escape, so it's safe
-  // as a regex-replacement template (which only treats `$` and `\` specially).
-  text = text.replacingOccurrences(of: "<\\s*br\\s*/?\\s*>", with: "\n", options: regex)
-  text = text.replacingOccurrences(of: "<\\s*li\\b[^>]*>", with: "\n\u{2022} ", options: regex)
-  // Block boundaries (not <li>; its closing tag is dropped by the strip below so
-  // each item stays single-spaced).
-  text = text.replacingOccurrences(
-    of: "<\\s*/?\\s*(p|div|ul|ol|h[1-6]|blockquote|tr|table)\\b[^>]*>",
-    with: "\n", options: regex
-  )
-  text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: [.regularExpression])
-  text = decodeHTMLEntities(text)
-  text = text.replacingOccurrences(of: "[ \\t]+\\n", with: "\n", options: [.regularExpression])
-  text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: [.regularExpression])
-  return text.trimmingCharacters(in: .whitespacesAndNewlines)
+/// Converts the HTML that IFDB stores in prose fields into Markdown for a
+/// SwiftUI `Text` (rendered via `AttributedString(markdown:)`). IFDB blurbs
+/// carry real markup — `<br>`, `<p>`, `<i>`/`<b>`, `<a>`, `<ul><li>` — and
+/// entity-encoded characters like `&#039;`. Emphasis and links survive as
+/// native styling/taps; structural tags become line breaks (list items become
+/// bullets). Prose runs have their Markdown metacharacters escaped so a literal
+/// `*`, `[`, or `_` in a blurb renders as itself rather than as syntax.
+func markdown(fromIFDBHTML html: String) -> String {
+  var output = ""
+  var inLink = false
+  var linkText = ""
+  var linkHref = ""
+
+  func emit(_ piece: String) {
+    if inLink { linkText += piece } else { output += piece }
+  }
+
+  func handleTag(_ interior: String) {
+    let closing = interior.hasPrefix("/")
+    let body = closing ? interior.dropFirst() : Substring(interior)
+    let name = String(body.prefix { $0.isLetter || $0.isNumber }).lowercased()
+    switch name {
+    case "br": emit("\n")
+    case "p", "div": emit("\n\n")
+    case "ul", "ol": emit("\n")
+    case "li": emit(closing ? "" : "\n\u{2022} ")
+    case "i", "em": emit("*")
+    case "b", "strong": emit("**")
+    case "a":
+      if closing {
+        guard inLink else { break }
+        inLink = false
+        output += linkHref.isEmpty ? linkText : "[\(linkText)](\(linkHref))"
+        linkText = ""
+        linkHref = ""
+      } else {
+        inLink = true
+        linkText = ""
+        linkHref = hrefValue(in: interior).map(decodeHTMLEntities) ?? ""
+      }
+    default: break
+    }
+  }
+
+  var index = html.startIndex
+  while index < html.endIndex {
+    if html[index] == "<", let close = html[index...].firstIndex(of: ">") {
+      handleTag(String(html[html.index(after: index)..<close]))
+      index = html.index(after: close)
+    } else {
+      // Text run up to the next tag. Start the search past a lone `<` so an
+      // unmatched `<` can't loop forever.
+      let searchStart = html[index] == "<" ? html.index(after: index) : index
+      let runEnd = html[searchStart...].firstIndex(of: "<") ?? html.endIndex
+      emit(escapeMarkdown(decodeHTMLEntities(String(html[index..<runEnd]))))
+      index = runEnd
+    }
+  }
+  if inLink { output += linkText }   // unterminated <a>: keep its text
+
+  output = output.replacingOccurrences(of: "[ \\t]+\\n", with: "\n", options: [.regularExpression])
+  output = output.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: [.regularExpression])
+  return output.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+/// Backslash-escapes the inline-Markdown metacharacters so prose text renders
+/// literally. Only these characters trigger inline syntax in
+/// `AttributedString(markdown:)`; escaping anything else would leave a stray
+/// backslash, so the set is exactly the inline specials.
+private func escapeMarkdown(_ string: String) -> String {
+  var result = ""
+  result.reserveCapacity(string.count)
+  for character in string {
+    if "\\`*_[]<>".contains(character) { result.append("\\") }
+    result.append(character)
+  }
+  return result
+}
+
+/// Pulls the `href` value out of an `<a …>` tag's interior (double or single
+/// quoted), still entity-encoded — the caller decodes it.
+private func hrefValue(in tagInterior: String) -> String? {
+  if let match = tagInterior.firstMatch(of: /href\s*=\s*"([^"]*)"/) {
+    return String(match.1)
+  }
+  if let match = tagInterior.firstMatch(of: /href\s*=\s*'([^']*)'/) {
+    return String(match.1)
+  }
+  return nil
 }
 
 /// Decodes HTML character entities — decimal (`&#039;`), hex (`&#xE9;`), and a

@@ -95,8 +95,8 @@ func decodesGameDetail() throws {
   #expect(detail.tags.count == 2)
   #expect(detail.tags.first?.name == "apartment")
   #expect(detail.coverArtURL?.absoluteString.contains("coverart?id=hsfc7fnl40k4a30q") == true)
-  // HTML entities are decoded for display.
-  #expect(detail.descriptionText?.hasPrefix("\"A one-room game") == true)
+  // HTML entities are decoded for display (Markdown for the attributed render).
+  #expect(detail.descriptionMarkdown?.hasPrefix("\"A one-room game") == true)
 }
 
 @Test("Selects the runnable Z-machine file and upgrades http to https")

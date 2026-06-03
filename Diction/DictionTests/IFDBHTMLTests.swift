@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Diction
 
@@ -40,44 +41,66 @@ struct IFDBEntityTests {
   }
 }
 
-@Suite("IFDB HTML to plain text")
-struct IFDBPlainTextTests {
-  @Test("line breaks become newlines")
-  func breaks() {
-    #expect(plainText(fromIFDBHTML: "a<br>b") == "a\nb")
-    #expect(plainText(fromIFDBHTML: "a<br/>b") == "a\nb")
-    #expect(plainText(fromIFDBHTML: "a<br />b") == "a\nb")
+@Suite("IFDB HTML to Markdown")
+struct IFDBMarkdownTests {
+  @Test("italic and bold tags become Markdown emphasis")
+  func emphasis() {
+    #expect(markdown(fromIFDBHTML: "<i>Hi</i>") == "*Hi*")
+    #expect(markdown(fromIFDBHTML: "<em>Hi</em>") == "*Hi*")
+    #expect(markdown(fromIFDBHTML: "<b>Hi</b>") == "**Hi**")
+    #expect(markdown(fromIFDBHTML: "<strong>Hi</strong>") == "**Hi**")
   }
 
-  @Test("paragraphs become blank-line separated")
-  func paragraphs() {
-    #expect(plainText(fromIFDBHTML: "<p>one</p><p>two</p>") == "one\n\ntwo")
+  @Test("anchors become Markdown links, href entities decoded")
+  func links() {
+    #expect(markdown(fromIFDBHTML: "<a href=\"http://x.com\">site</a>") == "[site](http://x.com)")
+    #expect(markdown(fromIFDBHTML: "<a href=\"http://x?a=1&amp;b=2\">q</a>") == "[q](http://x?a=1&b=2)")
   }
 
-  @Test("inline tags are stripped, text kept")
-  func inlineStripped() {
-    #expect(plainText(fromIFDBHTML: "<i>Hi</i> <a href=\"x\">there</a>") == "Hi there")
+  @Test("line breaks and paragraphs become newlines")
+  func structure() {
+    #expect(markdown(fromIFDBHTML: "a<br>b") == "a\nb")
+    #expect(markdown(fromIFDBHTML: "<p>one</p><p>two</p>") == "one\n\ntwo")
   }
 
   @Test("list items become bullets, one per line")
   func lists() {
-    #expect(plainText(fromIFDBHTML: "<ul><li>a</li><li>b</li></ul>") == "• a\n• b")
+    #expect(markdown(fromIFDBHTML: "<ul><li>a</li><li>b</li></ul>") == "• a\n• b")
   }
 
-  @Test("Violet's blurb renders cleanly")
+  @Test("entities are decoded in text runs")
+  func entities() {
+    #expect(markdown(fromIFDBHTML: "it&#039;s") == "it's")
+  }
+
+  @Test("Markdown metacharacters in prose are escaped so they render literally")
+  func escapesProse() {
+    #expect(markdown(fromIFDBHTML: "5 * 3 _x_ [note]") == "5 \\* 3 \\_x\\_ \\[note\\]")
+  }
+
+  @Test("emphasis keeps the tag's markers but escapes inner specials")
+  func escapeInsideEmphasis() {
+    #expect(markdown(fromIFDBHTML: "<i>a*b</i>") == "*a\\*b*")
+  }
+
+  @Test("link text is escaped but the URL is not")
+  func linkTextEscaped() {
+    #expect(markdown(fromIFDBHTML: "<a href=\"http://x?y=1\">a[b]</a>") == "[a\\[b\\]](http://x?y=1)")
+  }
+
+  @Test("Violet's blurb keeps its bracketed credit as literal text")
   func violet() {
-    let raw = "And you have all day, except it&#039;s already noon. [blurb from IF Comp 2008]"
-    #expect(plainText(fromIFDBHTML: raw) == "And you have all day, except it's already noon. [blurb from IF Comp 2008]")
+    let raw = "except it&#039;s already noon. [blurb from IF Comp 2008]"
+    #expect(markdown(fromIFDBHTML: raw) == "except it's already noon. \\[blurb from IF Comp 2008\\]")
   }
 
-  @Test("Anchorhead-style markup leaves no tags or raw entities")
-  func anchorheadSmoke() {
-    let raw = "<p>A horror game.</p><br><i>Award winner.</i> See <a href=\"http://x\">site</a>.&#039;"
-    let out = plainText(fromIFDBHTML: raw)
-    #expect(!out.contains("<"))
-    #expect(!out.contains("&#"))
-    #expect(out.contains("A horror game."))
-    #expect(out.contains("Award winner."))
-    #expect(out.hasSuffix("'"))
+  @Test("renders to attributed text with a live link")
+  func rendersAttributed() throws {
+    var options = AttributedString.MarkdownParsingOptions()
+    options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+    let source = markdown(fromIFDBHTML: "<i>Hi</i> <a href=\"http://x.com\">there</a>")
+    let attributed = try AttributedString(markdown: source, options: options)
+    #expect(String(attributed.characters) == "Hi there")
+    #expect(attributed.runs.contains { $0.link != nil })
   }
 }

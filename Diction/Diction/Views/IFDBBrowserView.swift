@@ -14,6 +14,10 @@ struct IFDBBrowserView: View {
   @State private var selected: IFDBSearchResult?
   private let client = IFDBClient()
 
+  /// Side padding for the devsys capsule — at least its corner radius (half the
+  /// height) so the text clears the rounded ends; scales with the caption font.
+  @ScaledMetric(relativeTo: .caption) private var chipHorizontalPadding: CGFloat = 10
+
   var body: some View {
     NavigationStack {
       content
@@ -102,37 +106,73 @@ struct IFDBBrowserView: View {
           .font(.subheadline)
           .foregroundStyle(.secondary)
       }
-      HStack(spacing: 8) {
-        if let devsys = result.devsys {
-          Text(devsys)
-            .font(.caption)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(.blue.opacity(0.2)))
-        }
-        if let year = result.year {
-          Text(year)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        if let rating = result.ratingText {
-          ratingLabel(rating, count: result.numRatings)
-        }
-      }
+      metadata(result)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
   }
 
+  /// Devsys chip, year, and rating. The Download button reserves a column for
+  /// the whole row height, leaving this line narrow; rather than let the rating
+  /// wrap mid-token ("4.5" / "(425)"), drop the whole line to two rows when it
+  /// can't fit one. Each item is atomic via `fixedSize`, so nothing breaks
+  /// inside a token, and the two-line fallback also covers larger Dynamic Type.
+  private func metadata(_ result: IFDBSearchResult) -> some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 8) { metadataItems(result) }
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 8) {
+          if let devsys = result.devsys { devsysChip(devsys) }
+          if let year = result.year { yearText(year) }
+        }
+        if let rating = result.ratingText {
+          ratingLabel(rating, count: result.numRatings)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func metadataItems(_ result: IFDBSearchResult) -> some View {
+    if let devsys = result.devsys { devsysChip(devsys) }
+    if let year = result.year { yearText(year) }
+    if let rating = result.ratingText {
+      ratingLabel(rating, count: result.numRatings)
+    }
+  }
+
+  private func devsysChip(_ devsys: String) -> some View {
+    Text(devsys)
+      .font(.caption)
+      .padding(.horizontal, chipHorizontalPadding)
+      .padding(.vertical, 3)
+      .background(Capsule().fill(.blue.opacity(0.2)))
+      .fixedSize(horizontal: true, vertical: false)
+  }
+
+  private func yearText(_ year: String) -> some View {
+    Text(year)
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: true, vertical: false)
+  }
+
   private func ratingLabel(_ rating: String, count: Int?) -> some View {
     let countSuffix = count.map { " (\($0))" } ?? ""
-    return Label(rating + countSuffix, systemImage: "star.fill")
-      .font(.caption)
-      .foregroundStyle(.orange)
-      .accessibilityLabel(
-        count.map { "\(rating) stars, \($0) ratings" } ?? "\(rating) star rating"
-      )
+    // A manual HStack (not `Label`) so the star sits tight against the number
+    // and the count never adaptively collapses to icon-only under width pressure.
+    return HStack(spacing: 3) {
+      Image(systemName: "star.fill")
+      Text(rating + countSuffix)
+    }
+    .font(.caption)
+    .foregroundStyle(.orange)
+    .fixedSize(horizontal: true, vertical: false)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      count.map { "\(rating) stars, \($0) ratings" } ?? "\(rating) star rating"
+    )
   }
 
   private func performSearch() {

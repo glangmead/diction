@@ -17,6 +17,12 @@ struct IFDBGameDetailView: View {
   @State private var downloadError: String?
   @State private var showingDownloadError = false
 
+  /// Horizontal inset for tag capsules. A `Capsule`'s corner radius is half its
+  /// height, so the text needs at least that much side padding to clear the
+  /// rounded ends; scaled with the caption font so it keeps clearing them as
+  /// Dynamic Type grows the capsule.
+  @ScaledMetric(relativeTo: .caption) private var tagHorizontalPadding: CGFloat = 12
+
   var body: some View {
     content
       .navigationTitle(detail?.title ?? fallbackTitle)
@@ -49,9 +55,9 @@ struct IFDBGameDetailView: View {
           coverArt(detail)
           header(detail)
           downloadSection(detail)
-          if let description = detail.descriptionText, !description.isEmpty {
+          if let description = detail.descriptionMarkdown, !description.isEmpty {
             section("About") {
-              Text(description)
+              Text(Self.attributedDescription(description))
                 .font(.body)
             }
           }
@@ -148,7 +154,7 @@ struct IFDBGameDetailView: View {
           ForEach(detail.tags) { tag in
             Text(tag.name)
               .font(.caption)
-              .padding(.horizontal, 8)
+              .padding(.horizontal, tagHorizontalPadding)
               .padding(.vertical, 4)
               .background(Capsule().fill(.secondary.opacity(0.15)))
           }
@@ -167,6 +173,17 @@ struct IFDBGameDetailView: View {
       content()
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  /// Parses the blurb's Markdown for display. `inlineOnlyPreservingWhitespace`
+  /// keeps the converter's line breaks and bullets verbatim while still styling
+  /// emphasis and making links tappable; a parse failure falls back to the raw
+  /// text rather than dropping the description.
+  private static func attributedDescription(_ markdown: String) -> AttributedString {
+    var options = AttributedString.MarkdownParsingOptions()
+    options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+    options.failurePolicy = .returnPartiallyParsedIfPossible
+    return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
   }
 
   // MARK: - Data
