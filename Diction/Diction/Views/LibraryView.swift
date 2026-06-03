@@ -27,7 +27,16 @@ struct LibraryView: View {
         }
       }
       .navigationTitle("Library")
-      .safeAreaInset(edge: .top, spacing: 0) { voicePreparingBanner }
+      // A large title collapses to an empty band under a top `safeAreaInset`,
+      // stranding the banner below it; an inline title coexists cleanly. (A
+      // display mode switched dynamically on readiness rendered unreliably, so
+      // it's inline unconditionally.)
+      .navigationBarTitleDisplayMode(.inline)
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if voiceWarmer.readiness == .preparing {
+          voicePreparingBanner
+        }
+      }
       .animation(.default, value: voiceWarmer.readiness)
       .task { voiceWarmer.warmUpIfNeeded() }
       .onChange(of: voiceWarmer.readiness) { old, new in
@@ -127,26 +136,23 @@ struct LibraryView: View {
   /// shown for the system voice or when neural is unavailable, since there's no
   /// load to wait on. The `.preparing`-only `if` means `safeAreaInset` reserves
   /// no space otherwise.
-  @ViewBuilder
   private var voicePreparingBanner: some View {
-    if voiceWarmer.readiness == .preparing {
-      HStack(spacing: 10) {
-        ProgressView()
-          .controlSize(.small)
-        Text("Preparing the neural voice for narration…")
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 10)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(.bar)
-      .overlay(alignment: .bottom) { Divider() }
-      .transition(.move(edge: .top).combined(with: .opacity))
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Preparing narration voice")
+    HStack(spacing: 10) {
+      ProgressView()
+        .controlSize(.small)
+      Text("Preparing the neural voice for narration…")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      Spacer(minLength: 0)
     }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(.bar)
+    .overlay(alignment: .bottom) { Divider() }
+    .transition(.move(edge: .top).combined(with: .opacity))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Preparing narration voice")
   }
 
   private func storyRow(_ story: StoryFile) -> some View {
