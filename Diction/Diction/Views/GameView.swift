@@ -72,15 +72,21 @@ struct GameView: View {
       }
     }
     .onChange(of: coordinator.recognizer.transcription) { _, new in
-      // Live-update the input field with partial transcription while
-      // listening, so the user sees what's being heard.
-      if coordinator.recognizer.isListening && !new.isEmpty {
+      // The field mirrors whatever the recognizer currently hears, so the user
+      // sees the live transcription. Crucially this mirrors the empty value too:
+      // continuous mode resets `transcription` to "" at the start of each cycle —
+      // i.e. right after an utterance finalizes and is dispatched — so the
+      // executed command clears instead of lingering in the field. (Guarding on
+      // `!new.isEmpty` was the bug: it skipped that reset and stuck the last
+      // utterance there forever, since `isListening` never drops between cycles.)
+      if coordinator.recognizer.isListening {
         commandText = new
       }
     }
     .onChange(of: coordinator.recognizer.isListening) { _, listening in
-      // After a recognition cycle finalizes, clear the input field so
-      // the residual transcription doesn't linger across utterances.
+      // Turning the mic off clears any lingering partial transcription. (In
+      // continuous mode `isListening` stays true between utterances, so this
+      // fires only on a real mic-off — the per-utterance clear is handled above.)
       if !listening { commandText = "" }
     }
     .onDisappear {
@@ -238,12 +244,32 @@ struct GameView: View {
     }
   }
 
+  /// Visual + VoiceOver hint for the single-keypress field.
+  private static let charInputHint = "y / n / 1 / …"
+
+  /// The "listening paused" placeholder text, or `nil` when it shouldn't show.
+  /// Non-nil only while narration is playing and the user hasn't tapped into
+  /// the field (typing shouldn't be nagged). Read inside `body` via the input
+  /// bars' `prompt:` / `accessibilityValue`, so Observation tracks the reads of
+  /// `synthesizer.isSpeaking` and `inputFocused` and re-renders the bar.
+  private var narrationPausedText: String? {
+    guard NarrationInputPrompt.isVisible(
+      isNarrating: coordinator.synthesizer.isSpeaking,
+      isFieldFocused: inputFocused
+    ) else { return nil }
+    return NarrationInputPrompt.message(wakeWord: coordinator.wakeWord)
+  }
+
+  private var narrationPausedPrompt: Text? {
+    narrationPausedText.map { Text($0) }
+  }
+
   private var lineInputBar: some View {
     HStack(spacing: 8) {
       Text(">")
         .font(.system(.body, design: .monospaced))
         .foregroundStyle(.gray)
-      TextField("", text: $commandText)
+      TextField("", text: $commandText, prompt: narrationPausedPrompt)
         .font(.system(.body, design: .monospaced))
         .foregroundStyle(.gameText)
         .textInputAutocapitalization(.never)
@@ -252,6 +278,7 @@ struct GameView: View {
         .onSubmit { dispatchTyped(commandText) }
         .submitLabel(.send)
         .accessibilityLabel("Enter command")
+        .accessibilityValue(narrationPausedText ?? commandText)
     }
     .padding(.horizontal)
     .padding(.vertical, 8)
@@ -267,13 +294,14 @@ struct GameView: View {
       Text("Key:")
         .font(.system(.body, design: .monospaced))
         .foregroundStyle(.gray)
-      TextField("y / n / 1 / …", text: $charInputText)
+      TextField("", text: $charInputText, prompt: narrationPausedPrompt ?? Text(Self.charInputHint))
         .font(.system(.body, design: .monospaced))
         .foregroundStyle(.gameText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .focused($inputFocused)
         .accessibilityLabel("Press a single key")
+        .accessibilityValue(narrationPausedText ?? (charInputText.isEmpty ? Self.charInputHint : charInputText))
         .onChange(of: charInputText) { _, new in
           guard let first = new.first else { return }
           let key = String(first)
