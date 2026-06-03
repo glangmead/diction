@@ -26,6 +26,10 @@ final class SpeechSynthesizer: NSObject {
   /// path that never adopts one (e.g. tests).
   private(set) var kokoro = KokoroSpeechEngine()
 
+  /// Live full-version entitlement, injected by `VoiceCoordinator.useEntitlement`.
+  /// Defaults to demo so any path that never wires it (e.g. tests) stays gated.
+  var isFullVersion: @MainActor () -> Bool = { false }
+
   override init() {
     super.init()
     synthesizer.delegate = self
@@ -166,14 +170,16 @@ final class SpeechSynthesizer: NSObject {
 
   private var kokoroGameVoice: String {
     let id = UserDefaults.standard.string(forKey: "kokoroVoiceId") ?? ""
-    return id.isEmpty ? "af_heart" : id
+    let stored = id.isEmpty ? "af_heart" : id
+    return DemoPolicy.effectiveKokoroVoice(stored, role: .game, fullVersion: isFullVersion())
   }
 
   /// A different voice for command echoes so "you said: go north" is audibly the
   /// app, not the game.
   private var kokoroEchoVoice: String {
     let id = UserDefaults.standard.string(forKey: "kokoroEchoVoiceId") ?? ""
-    return id.isEmpty ? "am_onyx" : id
+    let stored = id.isEmpty ? "am_michael" : id
+    return DemoPolicy.effectiveKokoroVoice(stored, role: .echo, fullVersion: isFullVersion())
   }
 
   /// Kokoro speed from the shared Settings rate, so `faster` / `slower` and the

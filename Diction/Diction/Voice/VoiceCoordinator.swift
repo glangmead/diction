@@ -55,6 +55,13 @@ final class VoiceCoordinator {
     synthesizer.useSharedEngine(warmer.engine)
   }
 
+  /// Feed the synthesizer the live full-version entitlement so demo never
+  /// narrates with a paid voice. Weak so the coordinator doesn't retain the
+  /// app-level store.
+  func useEntitlement(_ store: StoreManager) {
+    synthesizer.isFullVersion = { [weak store] in store?.isFullVersion ?? false }
+  }
+
   // MARK: - Internal state
 
   private var voiceAuthChecked = false

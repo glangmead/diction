@@ -4,6 +4,7 @@ struct GameView: View {
   let storyFile: StoryFile
 
   @Environment(VoiceWarmer.self) private var voiceWarmer
+  @Environment(StoreManager.self) private var store
   @State private var session = InterpreterSession()
   @State private var coordinator = VoiceCoordinator()
   @State private var commandText = ""
@@ -60,6 +61,7 @@ struct GameView: View {
     .task {
       coordinator.attach(session: session)
       coordinator.useSharedVoice(voiceWarmer)
+      coordinator.useEntitlement(store)
       do {
         try await session.load(storyFile.url)
         isLoading = false

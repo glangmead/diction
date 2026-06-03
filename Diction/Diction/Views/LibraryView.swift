@@ -4,27 +4,27 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
   @Bindable var fileManager: StoryFileManager
   @Environment(VoiceWarmer.self) private var voiceWarmer
+  @Environment(StoreManager.self) private var store
   @State private var showingIFDB = false
   @State private var showingSettings = false
   @State private var showingFileImporter = false
+  @State private var showingPaywall = false
   @State private var importError: String?
   @State private var deleteError: String?
 
   var body: some View {
     NavigationStack {
       List(fileManager.stories) { story in
-        NavigationLink(value: story) {
-          storyRow(story)
-        }
-        .swipeActions(edge: .trailing) {
-          if story.source != .bundled {
-            Button(role: .destructive) {
-              delete(story)
-            } label: {
-              Label("Delete", systemImage: "trash")
+        row(for: story)
+          .swipeActions(edge: .trailing) {
+            if story.source != .bundled {
+              Button(role: .destructive) {
+                delete(story)
+              } label: {
+                Label("Delete", systemImage: "trash")
+              }
             }
           }
-        }
       }
       .navigationTitle("Library")
       // A large title collapses to an empty band under a top `safeAreaInset`,
@@ -76,6 +76,9 @@ struct LibraryView: View {
       }
       .sheet(isPresented: $showingSettings) {
         SettingsView()
+      }
+      .sheet(isPresented: $showingPaywall) {
+        PaywallView()
       }
       .fileImporter(
         isPresented: $showingFileImporter,
@@ -155,10 +158,43 @@ struct LibraryView: View {
     .accessibilityLabel("Preparing narration voice")
   }
 
-  private func storyRow(_ story: StoryFile) -> some View {
+  /// Locked (non-bundled in demo) rows open the paywall instead of the game;
+  /// playable rows navigate. Locks only show once entitlement has resolved, so a
+  /// returning owner never sees a flash on cold launch.
+  @ViewBuilder
+  private func row(for story: StoryFile) -> some View {
+    if isLocked(story) {
+      Button {
+        showingPaywall = true
+      } label: {
+        storyRow(story, locked: true)
+      }
+      .buttonStyle(.plain)
+    } else {
+      NavigationLink(value: story) {
+        storyRow(story, locked: false)
+      }
+    }
+  }
+
+  private func isLocked(_ story: StoryFile) -> Bool {
+    store.entitlementResolved
+      && !DemoPolicy.isPlayable(story, fullVersion: store.isFullVersion)
+  }
+
+  private func storyRow(_ story: StoryFile, locked: Bool) -> some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(story.title)
-        .font(.headline)
+      HStack {
+        Text(story.title)
+          .font(.headline)
+        Spacer(minLength: 8)
+        if locked {
+          Image(systemName: "lock.fill")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
+        }
+      }
       HStack(spacing: 8) {
         Text(story.format == .zMachine ? "Z-machine" : "Glulx")
           .font(.caption)
@@ -176,7 +212,7 @@ struct LibraryView: View {
     }
     .padding(.vertical, 4)
     .accessibilityElement(children: .combine)
-    .accessibilityLabel(accessibilityDescription(for: story))
+    .accessibilityLabel(accessibilityDescription(for: story, locked: locked))
   }
 
   /// Handles a file-importer result: validates the extension is one we know
@@ -211,12 +247,15 @@ struct LibraryView: View {
     }
   }
 
-  private func accessibilityDescription(for story: StoryFile) -> String {
+  private func accessibilityDescription(for story: StoryFile, locked: Bool) -> String {
     var parts: [String] = [story.title]
     parts.append(story.format == .zMachine ? "Z-machine" : "Glulx")
     parts.append(story.source.label)
     if story.lastPlayed != nil {
       parts.append("recently played")
+    }
+    if locked {
+      parts.append("locked, double tap to unlock")
     }
     return parts.joined(separator: ", ")
   }

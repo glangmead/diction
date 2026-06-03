@@ -8,9 +8,11 @@ struct KokoroVoicePickerView: View {
   let title: String
   @Binding var selectedVoiceID: String
   @Environment(\.dismiss) private var dismiss
+  @Environment(StoreManager.self) private var store
 
   @State private var audition = KokoroSpeechEngine()
   @State private var auditioningVoice: String?
+  @State private var showingPaywall = false
 
   /// Shared speech-rate setting, so auditions play at the rate the user picked.
   @AppStorage("speechRate") private var speechRate: Double = Double(
@@ -56,17 +58,32 @@ struct KokoroVoicePickerView: View {
       audition.managesSession = true  // no recognizer here; configure the session
       await audition.prepareIfNeeded()
     }
+    .sheet(isPresented: $showingPaywall) {
+      PaywallView()
+    }
   }
 
   private func row(for id: String) -> some View {
-    HStack {
+    let locked = store.entitlementResolved
+      && !DemoPolicy.isKokoroVoiceUnlocked(id, fullVersion: store.isFullVersion)
+    return HStack {
       Button {
-        selectedVoiceID = id
-        dismiss()
+        if locked {
+          showingPaywall = true
+        } else {
+          selectedVoiceID = id
+          dismiss()
+        }
       } label: {
         HStack {
           Text(KokoroSpeechEngine.displayName(for: id))
             .foregroundStyle(.primary)
+          if locked {
+            Image(systemName: "lock.fill")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .accessibilityHidden(true)
+          }
           Spacer()
           if id == selectedVoiceID {
             Image(systemName: "checkmark")
@@ -78,6 +95,11 @@ struct KokoroVoicePickerView: View {
       }
       .buttonStyle(.plain)
       .accessibilityAddTraits(id == selectedVoiceID ? [.isSelected] : [])
+      .accessibilityLabel(
+        locked
+          ? "\(KokoroSpeechEngine.displayName(for: id)), locked, double tap to unlock"
+          : KokoroSpeechEngine.displayName(for: id)
+      )
 
       Button {
         auditionVoice(id)

@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		9B044C5F2FCA82410031B65E /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 9B044C5E2FCA82410031B65E /* FluidAudio */; };
+		9BDE254C2FD05401002357EF /* Configuration.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 9BDE254B2FD05401002357EF /* Configuration.storekit */; };
+		9BDE255B2FD06C7C002357EF /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9BDE255A2FD06C7C002357EF /* StoreKit.framework */; };
 		9BFD1A012FCBD2A6008EFF64 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 9BFD1A022FCBD2A6008EFF64 /* FluidAudio */; };
 /* End PBXBuildFile section */
 
@@ -36,6 +38,8 @@
 /* Begin PBXFileReference section */
 		9B044AEB2FC7A44D0031B65E /* Diction.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Diction.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9B044BCF2FC9D1CA0031B65E /* DictionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9BDE254B2FD05401002357EF /* Configuration.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Configuration.storekit; sourceTree = "<group>"; };
+		9BDE255A2FD06C7C002357EF /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		9BE929282FCBD2A6008EFF64 /* KokoroAudition */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = KokoroAudition; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -76,6 +80,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9B044C5F2FCA82410031B65E /* FluidAudio in Frameworks */,
+				9BDE255B2FD06C7C002357EF /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -100,6 +105,7 @@
 		9B044AE22FC7A44D0031B65E = {
 			isa = PBXGroup;
 			children = (
+				9BDE254B2FD05401002357EF /* Configuration.storekit */,
 				9B044AED2FC7A44D0031B65E /* Diction */,
 				9B044BD02FC9D1CA0031B65E /* DictionTests */,
 				9BE929292FCBD2A6008EFF64 /* KokoroAudition */,
@@ -121,6 +127,7 @@
 		9B100005CCCCCCCCCCCCCCCC /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				9BDE255A2FD06C7C002357EF /* StoreKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -248,6 +255,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9BDE254C2FD05401002357EF /* Configuration.storekit in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -427,6 +435,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = Diction/Info.plist;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diction listens to your voice commands while playing.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Diction transcribes your voice into game commands.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -443,7 +452,7 @@
 					"$(inherited)",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.langmead.diction.Diction;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luminous.diction;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -468,6 +477,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = Diction/Info.plist;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Diction listens to your voice commands while playing.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Diction transcribes your voice into game commands.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -484,7 +494,7 @@
 					"$(inherited)",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.langmead.diction.Diction;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luminous.diction;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
