@@ -89,7 +89,7 @@ struct KokoroVoicePickerView: View {
         }
       }
       .buttonStyle(.borderless)
-      .contentShape(Rectangle())
+       .contentShape(Rectangle())
       .accessibilityLabel("Audition \(KokoroSpeechEngine.displayName(for: id))")
     }
   }

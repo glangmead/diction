@@ -14,6 +14,15 @@ struct GameView: View {
   @State private var isLoading = true
   @State private var loadError: String?
   @State private var showingSettings = false
+  /// Drives the transcript scroll. Initialised to the bottom edge so play
+  /// starts pinned, and re-pinned explicitly when content or the input bar
+  /// changes — `.defaultScrollAnchor(.bottom)` alone stops following once the
+  /// content outgrows the viewport (see `transcriptView`).
+  @State private var scrollPosition = ScrollPosition(edge: .bottom)
+  /// True while the transcript is parked at (or within a hair of) its bottom.
+  /// Gates auto-follow so a reader who scrolls up to review history isn't
+  /// yanked back down by new game output.
+  @State private var isPinnedToBottom = true
   @FocusState private var inputFocused: Bool
 
   var body: some View {
@@ -169,10 +178,40 @@ struct GameView: View {
       .padding(.horizontal)
       .padding(.vertical, 12)
     }
-    // Stick to the bottom as content grows. Reliable under LazyVStack, unlike
-    // measuring and `scrollTo`-ing a trailing anchor — off-screen rows aren't
-    // laid out, so that approach undershoots the true bottom.
+    // `.defaultScrollAnchor(.bottom)` only sets the initial offset and
+    // bottom-aligns content shorter than the viewport. It does *not* keep
+    // following once the transcript outgrows the viewport, so the explicit
+    // re-pinning below drives the follow.
     .defaultScrollAnchor(.bottom)
+    .scrollPosition($scrollPosition)
+    // Track how far we are from the bottom so auto-follow only fires while the
+    // user hasn't deliberately scrolled up. 24 pt of slack absorbs the jitter
+    // from the input bar resizing the container on every turn.
+    .onScrollGeometryChange(for: Bool.self) {
+      $0.contentSize.height - $0.visibleRect.maxY < 24
+    } action: { _, pinned in
+      isPinnedToBottom = pinned
+    }
+    // New game output: follow it down. The pinned check reads the pre-growth
+    // state because this fires before the appended rows are laid out.
+    .onChange(of: session.transcript.count) { followBottomIfPinned() }
+    // The input bar shows/hides every turn, resizing the scroll container and
+    // knocking us off the bottom; re-pin when it does.
+    .onChange(of: session.isAwaitingInput) { followBottomIfPinned() }
+    // Status / secondary buffer panels appearing also resize the container.
+    .onChange(of: session.statusWindows.count) { followBottomIfPinned() }
+    .onChange(of: session.secondaryBufferWindows.count) { followBottomIfPinned() }
+  }
+
+  /// Scrolls the transcript back to its bottom edge, but only when the user was
+  /// already parked there. Scrolling to the `.bottom` *edge* (not a measured
+  /// trailing anchor) computes the true content bottom even under `LazyVStack`,
+  /// where off-screen rows aren't laid out.
+  private func followBottomIfPinned() {
+    guard isPinnedToBottom else { return }
+    withAnimation(.easeOut(duration: 0.2)) {
+      scrollPosition.scrollTo(edge: .bottom)
+    }
   }
 
   // MARK: - Secondary buffer windows (bottom panels)
