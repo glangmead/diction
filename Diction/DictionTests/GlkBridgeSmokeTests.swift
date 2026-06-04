@@ -132,3 +132,59 @@ func glkBridgeResumesFromStore() async throws {
 
   await resumed.shutdown()
 }
+
+private func tempSaveStore() -> SaveStorage {
+  SaveStorage(root: FileManager.default.temporaryDirectory
+    .appendingPathComponent("save-\(UUID().uuidString)", isDirectory: true))
+}
+
+/// The game's own SAVE/RESTORE verbs, end-to-end through the bridge: the bridge
+/// answers the fileref prompts itself (single slot), so a SAVE bookmarks state, a
+/// later RESTORE returns to it, and the VM truly rewinds — after changing state
+/// and restoring, re-opening the mailbox reports it's *already* open.
+@MainActor
+@Test("game SAVE then RESTORE round-trips the single slot", .timeLimit(.minutes(1)))
+func glkBridgeManualSaveRestore() async throws {
+  let bundle = Bundle(for: GlkBundleMarker.self)
+  let url = try #require(bundle.url(forResource: "minizork", withExtension: "z3"))
+
+  let session = InterpreterSession()
+  session.saveStore = tempSaveStore()
+  try await session.load(url)
+  await session.send("open mailbox")   // mailbox now open
+  await session.send("save")           // bookmark this state
+  await session.send("close mailbox")  // diverge
+  await session.send("restore")        // rewind to the bookmark
+
+  await session.send("open mailbox")
+  #expect(session.lastResponse.map(\.plainText).joined().lowercased().contains("already"))
+  await session.shutdown()
+}
+
+/// A manual SAVE must outlive the session: the bridge mirrors the bytes to
+/// `SaveStorage`, and a fresh session (started clean, mailbox closed) seeds that
+/// slot so its RESTORE returns to the saved state.
+@MainActor
+@Test("a manual SAVE persists so a fresh session can RESTORE it", .timeLimit(.minutes(1)))
+func glkBridgeManualSavePersists() async throws {
+  let bundle = Bundle(for: GlkBundleMarker.self)
+  let url = try #require(bundle.url(forResource: "minizork", withExtension: "z3"))
+  let store = tempSaveStore()
+
+  let first = InterpreterSession()
+  first.saveStore = store
+  try await first.load(url)
+  await first.send("open mailbox")
+  await first.send("save")
+  await first.shutdown()
+  #expect(store.exists(gameID: SaveStorage.gameID(for: url)))   // mirrored to disk
+
+  let second = InterpreterSession()
+  second.saveStore = store
+  try await second.load(url)   // fresh start: mailbox closed
+  await second.send("restore") // seeded slot → mailbox-open state
+
+  await second.send("open mailbox")
+  #expect(second.lastResponse.map(\.plainText).joined().lowercased().contains("already"))
+  await second.shutdown()
+}

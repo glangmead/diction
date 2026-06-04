@@ -45,6 +45,22 @@ let glkote = null
 let blorb = null
 let dialog = null
 let pendingAutosave = null   // snapshot object injected by Swift for restore, else null
+// The game's single manual SAVE slot, as a byte array (what glkapi's file I/O
+// reads/writes), or null when the game has never been saved. Seeded by Swift at
+// glkStart from SaveStorage; mirrored back to Swift on every SAVE so it survives
+// across launches. The headless WebView has no filesystem, so this in-memory
+// copy is what the synchronous Dialog.file_read returns.
+let saveSlot = null
+
+// Pack a byte array into base64 for postMessage (chunked so a large save doesn't
+// overflow the argument stack of String.fromCharCode).
+function bytesToB64(arr) {
+  let binary = ''
+  for (let i = 0; i < arr.length; i += 8192) {
+    binary += String.fromCharCode.apply(null, arr.slice(i, i + 8192))
+  }
+  return btoa(binary)
+}
 
 // Headless GlkOte: the 7-method interface glkapi actually calls. Sends the init
 // event itself (no display layer to supply metrics), forwards updates to Swift.
@@ -56,17 +72,24 @@ class BridgeGlkOte {
     setTimeout(() => this.accept_func({ type: 'init', gen: 0, metrics: METRICS, support: ['timer', 'hyperlinks'] }), 0)
   }
   update(data) {
+    // The game's SAVE/RESTORE verbs surface as a fileref_prompt specialinput.
+    // Answer it ourselves (single slot, no user filename) and DON'T forward this
+    // update — Swift never sees the prompt, so its input model is unchanged and
+    // send("save") just resolves on the resulting "Ok." update. Deferred by a
+    // microtask so the current glkapi cycle unwinds before we re-enter accept().
+    const special = data.specialinput
+    if (special && special.type === 'fileref_prompt') {
+      const gen = data.gen
+      Promise.resolve().then(() => answerFileref(special, gen))
+      return
+    }
     // glkapi's select posts the display update, THEN runs do_vm_autosave
     // synchronously. Defer our update post by a microtask so it reaches Swift
     // AFTER the move's autosave message — otherwise send() resolves on the
     // update with the previous turn's snapshot still latest, and a restore lands
     // one move stale.
     const shimmed = shimUpdate(data)
-    const special = data.specialinput ? JSON.stringify(data.specialinput) : null
-    Promise.resolve().then(() => {
-      post('update', shimmed)
-      if (special) post('specialinput', special)
-    })
+    Promise.resolve().then(() => post('update', shimmed))
   }
   save_allstate() { return {} }   // display is restored from Swift's presentation snapshot
   // glkapi.getlibrary delegates here; Quixe resolves its Dialog (for autosave)
@@ -81,19 +104,45 @@ class BridgeGlkOte {
   setdomcontext() {}
 }
 
-// Dialog: autosave routes to/from Swift; the classic fileref (manual SAVE) API
-// is stubbed for now — autosave is the resume mechanism. (Follow-up: bridge the
-// synchronous fileref API to SaveStorage.)
+// Answer a fileref_prompt the game raised for its SAVE/RESTORE verb. Single
+// slot, so we construct the ref ourselves rather than asking the user for a
+// name. The gen MUST match the prompt's update generation or glkapi silently
+// drops the event (accept_ui_event's generation guard). Only the `save` filetype
+// is backed by a slot; transcript/command/data prompts are cancelled (null ref),
+// which makes the game print its own "cancelled" message.
+function answerFileref(special, gen) {
+  if (!glkote) return
+  const ref = special.filetype === 'save'
+    ? dialog.file_construct_ref('save', special.filetype, special.gameid)
+    : null
+  glkote.accept_func({ type: 'specialresponse', response: 'fileref_prompt', value: ref, gen })
+}
+
+// Dialog: autosave routes to/from Swift (the resume mechanism); the synchronous
+// fileref API backs the game's own SAVE/RESTORE verb with a single in-memory
+// slot (`saveSlot`), seeded from and mirrored to Swift's SaveStorage.
 class BridgeDialog {
   constructor() { this.streaming = false }
   autosave_write(signature, snapshot) { post('autosave', snapshot ? JSON.stringify(snapshot) : null) }
   autosave_read(signature) { return pendingAutosave }
-  // Minimal fileref surface so glkapi/Blorb don't choke if they probe it.
-  file_construct_ref() { return null }
-  file_ref_exists() { return false }
-  file_read() { return null }
-  file_write() { return false }
-  file_remove_ref() {}
+
+  // Single slot: the filename is ignored. A non-null ref signals "slot exists to
+  // open"; glkapi/ZVM then call file_read / file_write on it.
+  file_construct_ref(filename, usage, gameid) { return { filename: 'save', usage: usage, gameid: gameid } }
+  file_ref_exists() { return saveSlot != null }
+  // Return a copy so the VM can't mutate our canonical slot in place.
+  file_read() { return saveSlot != null ? saveSlot.slice() : null }
+  // glkapi opens a write file by truncating (empty string, israw), then writes
+  // the byte array on close. Reset the slot on truncate but only mirror real
+  // bytes to Swift — persisting the transient empty would just be overwritten a
+  // microtask later.
+  file_write(ref, content, israw) {
+    if (israw || typeof content === 'string') { saveSlot = []; return true }
+    saveSlot = content.slice()
+    post('savewrite', bytesToB64(saveSlot))
+    return true
+  }
+  file_remove_ref() { saveSlot = null; post('savedelete') }
 }
 
 async function storyBytes() {
@@ -126,6 +175,13 @@ window.glkStart = async function (engine) {
     const restoreResp = await fetch('emglken://app/restore')
     const restoreText = restoreResp.ok ? await restoreResp.text() : ''
     pendingAutosave = restoreText.length ? JSON.parse(restoreText) : null
+    // Seed the manual SAVE slot from Swift's SaveStorage (raw bytes, or 404 when
+    // the game has no save). file_read returns this synchronously, so it has to
+    // be in hand before the VM can RESTORE.
+    const saveResp = await fetch('emglken://app/savedata')
+    saveSlot = saveResp.ok
+      ? Array.from(new Uint8Array(await saveResp.arrayBuffer()))
+      : null
     blorb = new window.BlorbClass()
     glkote = new BridgeGlkOte()
     dialog = new BridgeDialog()

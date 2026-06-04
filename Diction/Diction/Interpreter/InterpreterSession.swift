@@ -124,6 +124,10 @@ final class InterpreterSession {
   /// (the default — tests that don't exercise resume leave it nil).
   var snapshotStore: GameSnapshotStore?
 
+  /// Backs the game's manual SAVE slot (the interpreter's own SAVE verb). Forwarded
+  /// to the host at `load`; injected so tests isolate to a temp directory.
+  var saveStore = SaveStorage.default
+
   /// Story content signature, scoping snapshots so a changed/re-imported story
   /// can't restore a stale one.
   private var signature = ""
@@ -150,6 +154,7 @@ final class InterpreterSession {
       throw InterpreterError.unsupportedZMachineVersion(Int(version))
     }
     let engine = (detected == .glulx) ? "quixe" : "zvm"
+    host.saveStore = saveStore
     signature = Self.signature(for: storyData)
     // Resume from the store unless an explicit snapshot was passed (tests).
     let stored = explicitRestore == nil ? snapshotStore?.read(gameID: gameID, signature: signature) : nil

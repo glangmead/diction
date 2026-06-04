@@ -25,6 +25,11 @@ final class WebInterpreterHost: NSObject {
   /// presentation snapshot and persists via `GameSnapshotStore`.
   private(set) var latestAutosave: String?
 
+  /// Backs the game's manual SAVE slot. Seeded into the bridge at `start` and
+  /// updated whenever the bridge mirrors a SAVE. Injected so tests isolate; the
+  /// default is rooted in Documents.
+  var saveStore = SaveStorage.default
+
   override init() {
     super.init()
     let config = WKWebViewConfiguration()
@@ -46,6 +51,7 @@ final class WebInterpreterHost: NSObject {
     scheme.gameID = gameID
     scheme.storyData = story
     scheme.restoreData = restore
+    scheme.saveData = saveStore.read(gameID: gameID)
     lastGen = 0
     latestAutosave = nil
     // 1) Load the classic-Glk bridge page; wait for its scripts to evaluate.
@@ -135,9 +141,19 @@ extension WebInterpreterHost: WKScriptMessageHandler {
     case "bridge_loaded": handleBridgeLoaded()
     case "error": handleError(payload)
     case "autosave": handleAutosave(payload)
+    case "savewrite": handleSaveWrite(payload)
+    case "savedelete": saveStore.delete(gameID: gameID)
     case "update": handleUpdate(payload)
     default: break
     }
+  }
+
+  /// The bridge mirrors the game's SAVE bytes (base64) here; persist them to the
+  /// slot so a later launch can seed and RESTORE. A decode failure is dropped —
+  /// the in-memory slot still works for the rest of this session.
+  private func handleSaveWrite(_ payload: Any?) {
+    guard let b64 = payload as? String, let data = Data(base64Encoded: b64) else { return }
+    saveStore.write(gameID: gameID, data: data)
   }
 
   /// The VM's per-move autosave snapshot (JSON), or nil when the bridge signals a
@@ -180,6 +196,10 @@ final class EmglkenSchemeHandler: NSObject, WKURLSchemeHandler {
   /// VM autosave snapshot (JSON) to resume from, served at /restore. Nil → 404,
   /// so the bridge starts fresh.
   var restoreData: Data?
+  /// The game's manual SAVE slot bytes, served at /savedata so the bridge can
+  /// seed `saveSlot` before a RESTORE. Nil → 404, so the bridge starts with no
+  /// save (the game's RESTORE then reports "no saved game").
+  var saveData: Data?
   var gameID = ""
 
   func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
@@ -187,7 +207,9 @@ final class EmglkenSchemeHandler: NSObject, WKURLSchemeHandler {
     let path = url.path
     let (data, mime) = resource(for: path)
     let status = data == nil ? 404 : 200
-    if data == nil && !path.hasPrefix("/save/") {
+    // /restore and /savedata 404 by design when there's nothing to resume/seed;
+    // don't treat that as an error worth logging.
+    if data == nil && path != "/restore" && path != "/savedata" {
       FileHandle.standardError.write(Data("[emglken] scheme 404: \(path)\n".utf8))
     }
     let response = HTTPURLResponse(
@@ -235,6 +257,7 @@ final class EmglkenSchemeHandler: NSObject, WKURLSchemeHandler {
     switch path {
     case "/file/storyfile": return (storyData, "application/octet-stream")
     case "/restore": return (restoreData, "application/json")
+    case "/savedata": return (saveData, "application/octet-stream")
     default: return (nil, "application/octet-stream")
     }
   }
