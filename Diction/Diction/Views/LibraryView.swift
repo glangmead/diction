@@ -142,16 +142,6 @@ struct LibraryView: View {
     }
   }
 
-  /// Removes a swiped story, surfacing any failure (e.g. the file vanished
-  /// out from under us) in the delete alert rather than silently.
-  private func delete(_ story: StoryFile) {
-    do {
-      try fileManager.deleteStory(story)
-    } catch {
-      deleteError = "Couldn't delete \(story.title). \(error.localizedDescription)"
-    }
-  }
-
   /// Inform-only, full-width banner shown only while the neural voice is loading
   /// (in practice, the first launch after an update — the model's ANE compile is
   /// cached thereafter). It slides away the moment the voice is ready; nothing is
@@ -250,7 +240,7 @@ struct LibraryView: View {
       guard StoryFile.supportedExtensions.contains(ext) else {
         importError = """
         \(url.lastPathComponent) doesn't look like an interactive-fiction story file. \
-        Supported formats: .z1–.z8, .zblorb, .ulx, .gblorb, .blorb, .blb.
+        Supported formats: Z-machine .z3/.z5/.z8, Glulx .ulx, and Blorb (.zblorb, .gblorb, .blorb, .blb).
         """
         return
       }
@@ -277,5 +267,19 @@ struct LibraryView: View {
       parts.append("locked, double tap to unlock")
     }
     return parts.joined(separator: ", ")
+  }
+}
+
+// MARK: - Deletion helper
+
+extension LibraryView {
+  /// Removes a swiped story, surfacing any failure (e.g. the file vanished
+  /// out from under us) in the delete alert rather than silently.
+  func delete(_ story: StoryFile) {
+    do {
+      try fileManager.deleteStory(story)
+    } catch {
+      deleteError = "Couldn't delete \(story.title). \(error.localizedDescription)"
+    }
   }
 }

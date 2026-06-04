@@ -47,6 +47,9 @@ final class VoiceCoordinator {
 
   func attach(session: InterpreterSession) {
     self.session = session
+    // A new session is a new (or reset) game — narrate its opening afresh.
+    hasNarratedOpening = false
+    lastNarratedEntries = []
   }
 
   /// Route narration through the app-level shared neural engine warmed by
@@ -335,23 +338,24 @@ final class VoiceCoordinator {
 
   // MARK: - Opening narration
 
-  /// Speaks the game's opening aloud — once per game session, only when
-  /// narration is active and the player hasn't sent any commands yet. The
-  /// entire opening transcript is read, including whatever the game prints
-  /// before its copyright/serial line (games often open with mood-setting
-  /// prose there, which we used to skip and shouldn't).
+  /// Speaks the game's entry point aloud — once per game session, when narration
+  /// is active. A fresh game reads its whole opening transcript (including the
+  /// mood-setting prose before the copyright/serial line). A restored game
+  /// already has prior commands in the transcript, so it reads just the latest
+  /// block (where the player left off) rather than the full history or nothing.
   func narrateOpeningIfNeeded() {
     guard let session, isSpeaking else { return }
     guard !hasNarratedOpening else { return }
-    guard !session.transcript.contains(where: \.isUserInput) else { return }
 
-    let opening = session.transcript
-    guard !opening.isEmpty else { return }
+    let entry = session.transcript.contains(where: \.isUserInput)
+      ? session.lastResponse
+      : session.transcript
+    guard !entry.isEmpty else { return }
 
     hasNarratedOpening = true
     Task {
-      await synthesizer.speak(opening)
-      lastNarratedEntries = opening
+      await synthesizer.speak(entry)
+      lastNarratedEntries = entry
     }
   }
 

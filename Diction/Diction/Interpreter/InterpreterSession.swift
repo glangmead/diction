@@ -1,4 +1,12 @@
 import Foundation
+import CryptoKit
+
+// swiftlint:disable file_length
+// Pitch for the exception: this type owns both RemGlk update ingestion (apply +
+// window/content handling) and resume snapshot capture/restore. Both mutate its
+// `private` state, so they can't move to an extension in another file without
+// widening access and scattering tightly-coupled mutation. ~436 lines; prefer
+// the exception over leaking internals.
 
 /// Bridges the Swift app to an emglken interpreter (Bocfel or Glulxe compiled to
 /// WASM) running inside a headless `WKWebView`, exchanging RemGlk JSON. The
@@ -107,7 +115,23 @@ final class InterpreterSession {
   /// keyed by window id and surfaced via `secondaryBufferWindows`.
   private var secondaryBuffers: [Int: BufferWindowSnapshot] = [:]
 
-  func load(_ storyURL: URL) async throws {
+  /// The interpreter's latest VM autosave (JSON) — the engine half of a resume
+  /// snapshot, paired with `captureSnapshot()` and persisted via
+  /// `GameSnapshotStore`. Nil until the first move autosaves.
+  var engineSnapshot: Data? { host.latestAutosave.flatMap { Data($0.utf8) } }
+
+  /// Persists/loads per-turn resume snapshots. Injected; nil disables persistence
+  /// (the default — tests that don't exercise resume leave it nil).
+  var snapshotStore: GameSnapshotStore?
+
+  /// Story content signature, scoping snapshots so a changed/re-imported story
+  /// can't restore a stale one.
+  private var signature = ""
+
+  /// Loads a story into a fresh VM. If a valid resume snapshot exists in
+  /// `snapshotStore` (or `restoring` is passed explicitly), the VM resumes from
+  /// it and the saved display is repainted. Otherwise it starts fresh.
+  func load(_ storyURL: URL, restoring explicitRestore: Data? = nil) async throws {
     guard let detected = try FormatDetector.detect(url: storyURL) else {
       throw InterpreterError.unknownFormat
     }
@@ -119,15 +143,51 @@ final class InterpreterSession {
     FileHandle.standardError.write(Data(
       "[diction-dict] \(gameID) — \(dictionary.count) words: \(sortedDict)\n".utf8))
 
-    let engine = (detected == .glulx) ? "glulxe.js" : "bocfel.js"
     let storyData = try Data(contentsOf: storyURL)
+    if detected == .zMachine,
+       let version = FormatDetector.zMachineVersion(header: storyData),
+       !FormatDetector.supportedZMachineVersions.contains(version) {
+      throw InterpreterError.unsupportedZMachineVersion(Int(version))
+    }
+    let engine = (detected == .glulx) ? "quixe" : "zvm"
+    signature = Self.signature(for: storyData)
+    // Resume from the store unless an explicit snapshot was passed (tests).
+    let stored = explicitRestore == nil ? snapshotStore?.read(gameID: gameID, signature: signature) : nil
     do {
-      let first = try await host.start(story: storyData, engine: engine, gameID: gameID)
+      let first = try await host.start(
+        story: storyData, engine: engine, gameID: gameID, restore: explicitRestore ?? stored?.engine)
       apply(first)
+      // Repaint the saved display over the interpreter's (minimal) post-restore
+      // update — but keep the live protocol state the interpreter just set, so
+      // the next command targets the right window/generation.
+      if let stored,
+         let presentation = try? JSONDecoder().decode(PresentationSnapshot.self, from: stored.presentation) {
+        let liveGen = currentGen, liveWindow = currentWindow, liveMode = inputMode
+        restore(presentation)
+        currentGen = liveGen
+        currentWindow = liveWindow
+        inputMode = liveMode
+      }
+      persistSnapshot()
     } catch {
       lastError = "load failed: \(error)"
       throw InterpreterError.loadFailed
     }
+  }
+
+  /// SHA-256 of the story bytes, used to scope resume snapshots to exact content.
+  private static func signature(for data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// Persist the current resume snapshot (engine autosave + presentation) after a
+  /// settled turn. No-op without a store or before the first autosave exists.
+  private func persistSnapshot() {
+    guard let snapshotStore, !signature.isEmpty, let engine = engineSnapshot,
+          let presentation = try? JSONEncoder().encode(captureSnapshot()) else { return }
+    try? snapshotStore.write(
+      gameID: gameID, signature: signature,
+      snapshot: GameSnapshot(engine: engine, presentation: presentation))
   }
 
   /// Drops all but the trailing `count` entries from the transcript.
@@ -154,6 +214,7 @@ final class InterpreterSession {
       lastError = "send failed: \(error)"
     }
     recordResponse(echoIndex: echoIndex, clearsBefore: clearsBefore)
+    persistSnapshot()
   }
 
   /// Sends a single Glk character event. Used when the interpreter
@@ -174,6 +235,7 @@ final class InterpreterSession {
       lastError = "send failed: \(error)"
     }
     recordResponse(echoIndex: echoIndex, clearsBefore: clearsBefore)
+    persistSnapshot()
   }
 
   /// Tears down the emglken instance when leaving the game. Async to match the
@@ -196,9 +258,51 @@ final class InterpreterSession {
     }
   }
 
+  // MARK: - Snapshot (resume)
+
+  /// Freeze the session's renderable + protocol state for persistence — the
+  /// display half of a resume snapshot. Pair with the interpreter's VM autosave
+  /// taken on the same settled update so the transcript and VM never diverge.
+  func captureSnapshot() -> PresentationSnapshot {
+    PresentationSnapshot(
+      transcript: transcript,
+      lastResponse: lastResponse,
+      lastResponseStart: lastResponseStart,
+      transcriptClears: transcriptClears,
+      inputMode: inputMode,
+      currentGen: currentGen,
+      currentWindow: currentWindow,
+      windowTypes: windowTypes,
+      windowStyles: windowStyles,
+      gridSnapshots: gridSnapshots,
+      primaryBufferID: primaryBufferID,
+      secondaryBuffers: secondaryBuffers
+    )
+  }
+
+  /// Repaint from a captured snapshot. The live interpreter is restored
+  /// separately via its own VM autosave; this restores only what the views show.
+  func restore(_ snapshot: PresentationSnapshot) {
+    transcript = snapshot.transcript
+    lastResponse = snapshot.lastResponse
+    lastResponseStart = snapshot.lastResponseStart
+    transcriptClears = snapshot.transcriptClears
+    inputMode = snapshot.inputMode
+    currentGen = snapshot.currentGen
+    currentWindow = snapshot.currentWindow
+    windowTypes = snapshot.windowTypes
+    windowStyles = snapshot.windowStyles
+    gridSnapshots = snapshot.gridSnapshots
+    primaryBufferID = snapshot.primaryBufferID
+    secondaryBuffers = snapshot.secondaryBuffers
+  }
+
   // MARK: - Internals
 
-  private func apply(_ update: RemGlkUpdate) {
+  /// Ingest one settled RemGlk update. The single mutation point for play state,
+  /// driven by `load`/`send`; `internal` (not `private`) so tests can feed
+  /// updates without a live interpreter.
+  func apply(_ update: RemGlkUpdate) {
     if let windows = update.windows {
       for window in windows {
         updateWindowMeta(window)
@@ -334,11 +438,14 @@ final class InterpreterSession {
 enum InterpreterError: Error, CustomStringConvertible {
   case unknownFormat
   case loadFailed
+  case unsupportedZMachineVersion(Int)
 
   var description: String {
     switch self {
     case .unknownFormat: "Story file format not recognized."
     case .loadFailed: "Failed to load story file."
+    case .unsupportedZMachineVersion(let version):
+      "Z-machine version \(version) isn't supported. Diction plays versions 3, 4, 5, and 8."
     }
   }
 }

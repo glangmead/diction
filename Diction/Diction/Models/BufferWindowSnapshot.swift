@@ -7,7 +7,7 @@ import Foundation
 /// `StyledText.applyBufferContent`). `top`/`height` come from RemGlk's geometry;
 /// because the app feeds emglken 1×1 cell metrics, `height` is a line count and
 /// `top` orders the panel (Blue Lacuna's sits at the bottom, `top` 47).
-nonisolated struct BufferWindowSnapshot: Identifiable, Sendable {
+nonisolated struct BufferWindowSnapshot: Identifiable, Sendable, Equatable, Codable {
   let id: Int
   var top: Int = 0
   var height: Int = 0

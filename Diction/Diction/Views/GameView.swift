@@ -15,6 +15,10 @@ struct GameView: View {
   @State private var isLoading = true
   @State private var loadError: String?
   @State private var showingSettings = false
+  @State private var showingResetConfirm = false
+  /// Bumped to restart the game from scratch: the load `.task` is keyed on it,
+  /// so changing it re-runs the load against a freshly created session.
+  @State private var reloadToken = 0
   /// Drives the transcript scroll. Initialised to the bottom edge so play
   /// starts pinned, and re-pinned explicitly when content or the input bar
   /// changes — `.defaultScrollAnchor(.bottom)` alone stops following once the
@@ -54,14 +58,24 @@ struct GameView: View {
       ToolbarItem(placement: .topBarTrailing) { voiceLoadingIndicator }
       ToolbarItem(placement: .topBarTrailing) { micToggle }
       ToolbarItem(placement: .topBarTrailing) { speakerToggle }
+      ToolbarItem(placement: .topBarTrailing) { resetButton }
     }
     .sheet(isPresented: $showingSettings) {
       SettingsView()
     }
-    .task {
+    .confirmationDialog(
+      "Start over?", isPresented: $showingResetConfirm, titleVisibility: .visible
+    ) {
+      Button("Start Over", role: .destructive) { resetGame() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This erases your saved progress in \(storyFile.title) and restarts from the beginning.")
+    }
+    .task(id: reloadToken) {
       coordinator.attach(session: session)
       coordinator.useSharedVoice(voiceWarmer)
       coordinator.useEntitlement(store)
+      session.snapshotStore = .default   // per-turn autosave + resume-on-open
       do {
         try await session.load(storyFile.url)
         isLoading = false
@@ -328,5 +342,31 @@ struct GameView: View {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     if !trimmed.isEmpty { commandText = "" }
     Task { await coordinator.dispatch(text: text, fromVoice: false) }
+  }
+}
+
+// MARK: - Reset / start-over
+
+extension GameView {
+  var resetButton: some View {
+    Button {
+      showingResetConfirm = true
+    } label: {
+      Image(systemName: "arrow.clockwise")
+    }
+    .accessibilityLabel("Start over")
+    .accessibilityHint("Erases saved progress and restarts this game from the beginning.")
+  }
+
+  /// Delete the resume snapshot and reload from scratch on a fresh session.
+  func resetGame() {
+    let previous = session
+    Task { await previous.shutdown() }
+    coordinator.tearDown()
+    GameSnapshotStore.default.delete(gameID: SaveStorage.gameID(for: storyFile.url))
+    session = InterpreterSession()
+    loadError = nil
+    isLoading = true
+    reloadToken += 1
   }
 }

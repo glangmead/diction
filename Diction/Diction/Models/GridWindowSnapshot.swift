@@ -5,7 +5,7 @@ import Foundation
 /// interpreter rewrites rows (AMFV updates the time on row 0 every turn). The
 /// buffer's prose lives in the transcript; this is the panel beside it, e.g.
 /// AMFV's mode / location / time / date bar.
-nonisolated struct GridWindowSnapshot: Identifiable, Sendable {
+nonisolated struct GridWindowSnapshot: Identifiable, Sendable, Equatable, Codable {
   /// RemGlk window id.
   let id: Int
   /// The window's `top` coordinate, used to order stacked panels so they

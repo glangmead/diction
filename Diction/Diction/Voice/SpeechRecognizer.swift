@@ -95,6 +95,12 @@ final class SpeechRecognizer {
     task = nil
     audioEngine?.stop()
     audioEngine = nil
+    // Actually release the shared session (the method comment always claimed
+    // this). Leaving it active meant a second game's fresh engine enabled voice
+    // processing over a still-active session, and its input node came up with an
+    // invalid (0 Hz / 0 ch) format — the crash on re-opening a game. Deactivating
+    // lets the next `startEngine` re-initialise voice processing cleanly.
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     isListening = false
   }
 
@@ -160,6 +166,17 @@ final class SpeechRecognizer {
     let input = engine.inputNode
     input.removeTap(onBus: 0)
     let format = input.outputFormat(forBus: 0)
+    // `installTap` aborts (IsFormatSampleRateAndChannelCountValid) if the input
+    // format is degenerate — which is what voice processing reports when there's
+    // no real mic input (notably the Simulator). Degrade to "no listening"
+    // rather than crash; narration and typed input still work.
+    guard format.sampleRate > 0, format.channelCount > 0 else {
+      let desc = "\(format.sampleRate)Hz/\(format.channelCount)ch"
+      FileHandle.standardError.write(Data("[diction-rec] invalid mic format \(desc); listening off\n".utf8))
+      errorMessage = "Microphone input is unavailable on this device."
+      isListening = false
+      return
+    }
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
       req.append(buffer)
     }

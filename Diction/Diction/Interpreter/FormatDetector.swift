@@ -52,6 +52,31 @@ nonisolated enum FormatDetector {
     return detect(header: header)
   }
 
+  /// Z-machine versions the bundled interpreter (ZVM) can run. v1/v2 are ancient
+  /// and v6 is graphical; none are supported. (Glulx has no equivalent split.)
+  static let supportedZMachineVersions: Set<UInt8> = [3, 4, 5, 8]
+
+  /// The Z-machine version byte — raw file byte 0, or the first byte of a
+  /// blorb's `ZCOD` chunk data (after its 4-byte type + 4-byte length). Nil if
+  /// the header isn't a Z-machine story.
+  static func zMachineVersion(header: Data) -> UInt8? {
+    let bytes = [UInt8](header)
+    guard bytes.count >= 4 else { return nil }
+    if (1...8).contains(bytes[0]) { return bytes[0] }
+    if bytes.count >= 12,
+       startsWith(bytes, magic: formMagic),
+       hasMagic(bytes, atOffset: 8, magic: ifrsMagic) {
+      var offset = 12
+      while offset + 8 < bytes.count {
+        if hasMagic(bytes, atOffset: offset, magic: zcodMagic) {
+          return bytes[offset + 8]
+        }
+        offset += 1
+      }
+    }
+    return nil
+  }
+
   // MARK: - Magic constants
 
   private static let glulMagic: [UInt8] = [0x47, 0x6C, 0x75, 0x6C]  // "Glul"

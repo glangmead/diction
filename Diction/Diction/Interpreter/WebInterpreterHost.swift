@@ -20,6 +20,10 @@ final class WebInterpreterHost: NSObject {
   /// Latest generation seen; used to stamp the fileref response.
   private var lastGen = 0
   private var gameID = ""
+  /// Latest VM autosave snapshot (JSON) posted by the bridge after a move, or
+  /// nil. This is the engine artifact `InterpreterSession` pairs with its
+  /// presentation snapshot and persists via `GameSnapshotStore`.
+  private(set) var latestAutosave: String?
 
   override init() {
     super.init()
@@ -32,21 +36,26 @@ final class WebInterpreterHost: NSObject {
     webView.navigationDelegate = self
   }
 
-  /// Loads the story into a fresh emglken instance and returns the first update
-  /// (the opening room + input request).
-  func start(story: Data, engine: String, gameID: String) async throws -> RemGlkUpdate {
+  /// Loads the story into a fresh ZVM/Quixe instance and returns the first update
+  /// (the opening room + input request). `engine` is "zvm" (Z-machine) or "quixe"
+  /// (Glulx). `restore`, if present, is a VM autosave snapshot (JSON) to resume
+  /// from; it is served at /restore so the bridge can read it synchronously
+  /// before `prepare()`.
+  func start(story: Data, engine: String, gameID: String, restore: Data? = nil) async throws -> RemGlkUpdate {
     self.gameID = gameID
     scheme.gameID = gameID
     scheme.storyData = story
+    scheme.restoreData = restore
     lastGen = 0
-    // 1) Load the page and wait for the bridge module to finish evaluating.
+    latestAutosave = nil
+    // 1) Load the classic-Glk bridge page; wait for its scripts to evaluate.
     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
       bootContinuation = continuation
-      webView.load(URLRequest(url: URL(string: "emglken://app/index.html")!))
+      webView.load(URLRequest(url: URL(string: "emglken://app/glk-bridge.html")!))
     }
-    // 2) Instantiate the engine; the first settled update resolves `pending`.
+    // 2) Boot the VM; the first settled update resolves `pending`.
     return try await awaitNextUpdate {
-      self.webView.evaluateJavaScript("window.emglkenStart('\(engine)'); 0", completionHandler: nil)
+      self.webView.evaluateJavaScript("window.glkStart('\(engine)'); 0", completionHandler: nil)
     }
   }
 
@@ -92,7 +101,7 @@ final class WebInterpreterHost: NSObject {
       .replacingOccurrences(of: "'", with: "\\'")
       .replacingOccurrences(of: "\n", with: "\\n")
       .replacingOccurrences(of: "\r", with: "\\r")
-    webView.evaluateJavaScript("window.emglkenSendEvent('\(escaped)'); 0", completionHandler: nil)
+    webView.evaluateJavaScript("window.glkSendEvent('\(escaped)'); 0", completionHandler: nil)
   }
 
   func log(_ message: String) { FileHandle.standardError.write(Data("[emglken] \(message)\n".utf8)) }
@@ -125,11 +134,16 @@ extension WebInterpreterHost: WKScriptMessageHandler {
     switch dict["stage"] as? String ?? "?" {
     case "bridge_loaded": handleBridgeLoaded()
     case "error": handleError(payload)
-    case "save_bytes": handleSaveBytes(payload)
-    case "specialinput": handleSpecialInput(payload)
+    case "autosave": handleAutosave(payload)
     case "update": handleUpdate(payload)
     default: break
     }
+  }
+
+  /// The VM's per-move autosave snapshot (JSON), or nil when the bridge signals a
+  /// delete (no snapshot). Held until the caller captures it after a move.
+  private func handleAutosave(_ payload: Any?) {
+    latestAutosave = payload as? String
   }
 
   private func handleBridgeLoaded() {
@@ -146,61 +160,26 @@ extension WebInterpreterHost: WKScriptMessageHandler {
     pending = nil
   }
 
-  private func handleSaveBytes(_ payload: Any?) {
-    guard let body = payload as? [String: Any], let name = body["name"] as? String,
-          let b64 = body["b64"] as? String, let data = Data(base64Encoded: b64),
-          let url = SaveStorage.emglkenFileURL(gameID: gameID, basename: name) else { return }
-    do {
-      try data.write(to: url)
-      log("save -> \(url.lastPathComponent) (\(data.count) bytes)")
-    } catch { log("save write failed: \(error)") }
-  }
-
-  /// Answer fileref prompts. We send the filetype's name as the token; remglk-rs
-  /// appends its own extension and Dialog.read/write surface the resulting
-  /// basename, which we store per-game. The follow-up update (with the save
-  /// written / restore applied) is what resolves `pending`.
-  private func handleSpecialInput(_ payload: Any?) {
-    guard let json = payload as? String, let data = json.data(using: .utf8),
-          let req = try? JSONDecoder().decode(RemGlkUpdate.SpecialRequest.self, from: data) else { return }
-    let response = EmglkenFilerefResponse(
-      gen: lastGen, response: req.type, value: .init(filename: req.filetype.rawValue))
-    send(response)
-  }
-
   private func handleUpdate(_ payload: Any?) {
     guard let raw = payload,
           let data = try? JSONSerialization.data(withJSONObject: raw),
           let update = try? JSONDecoder().decode(RemGlkUpdate.self, from: data) else { return }
     if let gen = update.gen { lastGen = gen }
-    // A specialinput update is NOT settled — we answer it (above) and keep
-    // waiting. Any other update is what the caller awaited.
-    if update.specialinput == nil {
-      pending?.resume(returning: update)
-      pending = nil
-    }
+    pending?.resume(returning: update)
+    pending = nil
   }
 }
 
-/// The fileref answer remglk-rs (WASM) requires: it is stricter than C RemGlk and
-/// needs both `response` (which prompt is being answered) and `value` as an object
-/// `{filename}`. (The old `RemGlkSpecialResponse`, with `value: String?`, is the
-/// C-RemGlk shape and is deleted in a later task.)
-struct EmglkenFilerefResponse: Encodable {
-  let type = "specialresponse"
-  let gen: Int
-  let response: String
-  struct Value: Encodable { let filename: String }
-  let value: Value
-}
-
-/// Serves the bundled emglken assets, the current story bytes, and per-game save
-/// files over the `emglken://app/...` origin (ES-module import + wasm fetch are
-/// blocked from file://). A missing save returns 404 (normal pre-save) so the
-/// JS `fetch` resolves with `!ok` rather than throwing.
+/// Serves the bundled interpreter assets (the classic Glk stack + ZVM/Quixe),
+/// the current story bytes, and the resume snapshot over the `glk://app/...`
+/// origin (script + wasm fetch are blocked from file://). The scheme is still
+/// registered as "emglken" for now; renaming it is a cosmetic follow-up.
 @MainActor
 final class EmglkenSchemeHandler: NSObject, WKURLSchemeHandler {
   var storyData: Data?
+  /// VM autosave snapshot (JSON) to resume from, served at /restore. Nil → 404,
+  /// so the bridge starts fresh.
+  var restoreData: Data?
   var gameID = ""
 
   func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
@@ -221,19 +200,41 @@ final class EmglkenSchemeHandler: NSObject, WKURLSchemeHandler {
 
   func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 
+  /// Static bundle assets, keyed by request path → (resource name, extension).
+  /// MIME is derived from the extension. The classic Glk stack (glkapi/dialog/
+  /// dispatch) plus the VMs (Quixe for Glulx, ZVM for Z-machine). Dynamic paths
+  /// (story / restore) are handled separately.
+  private static let bundleAssets: [String: (name: String, ext: String)] = [
+    "": ("glk-bridge", "html"),
+    "/": ("glk-bridge", "html"),
+    "/index.html": ("glk-bridge", "html"),
+    "/glk-bridge.html": ("glk-bridge", "html"),
+    "/glk-bridge.js": ("glk-bridge", "js"),
+    "/glkapi.js": ("glkapi", "js"),
+    "/gi_blorb.js": ("gi_blorb", "js"),
+    "/gi_dispa.js": ("gi_dispa", "js"),
+    "/gi_load.js": ("gi_load", "js"),
+    "/quixe.min.js": ("quixe.min", "js"),
+    "/zvm.js": ("zvm", "js"),
+    "/zvm_dispatch.js": ("zvm_dispatch", "js")
+  ]
+
+  private static func mime(forExt ext: String) -> String {
+    switch ext {
+    case "html": "text/html"
+    case "js": "text/javascript"
+    case "wasm": "application/wasm"
+    default: "application/octet-stream"
+    }
+  }
+
   private func resource(for path: String) -> (Data?, String) {
+    if let asset = Self.bundleAssets[path] {
+      return (bundleData(asset.name, asset.ext), Self.mime(forExt: asset.ext))
+    }
     switch path {
-    case "", "/", "/index.html": return (bundleData("emglken-bridge", "html"), "text/html")
-    case "/emglken-bridge.js": return (bundleData("emglken-bridge", "js"), "text/javascript")
-    case "/glulxe.js": return (bundleData("glulxe", "js"), "text/javascript")
-    case "/glulxe.wasm": return (bundleData("glulxe", "wasm"), "application/wasm")
-    case "/bocfel.js": return (bundleData("bocfel", "js"), "text/javascript")
-    case "/bocfel.wasm": return (bundleData("bocfel", "wasm"), "application/wasm")
     case "/file/storyfile": return (storyData, "application/octet-stream")
-    case let savePath where savePath.hasPrefix("/save/"):
-      let name = String(savePath.dropFirst("/save/".count))
-      let url = SaveStorage.emglkenFileURL(gameID: gameID, basename: name)
-      return (url.flatMap { try? Data(contentsOf: $0) }, "application/octet-stream")
+    case "/restore": return (restoreData, "application/json")
     default: return (nil, "application/octet-stream")
     }
   }

@@ -4,7 +4,7 @@ import Foundation
 /// transcript and grid (status) window rows. Each run carries its resolved
 /// effective styling so presentation doesn't have to walk the window's style
 /// table itself.
-nonisolated struct StyledText: Identifiable, Sendable {
+nonisolated struct StyledText: Identifiable, Sendable, Equatable, Codable {
   let id: UUID
   var runs: [Run]
 
@@ -13,7 +13,7 @@ nonisolated struct StyledText: Identifiable, Sendable {
     self.runs = runs
   }
 
-  struct Run: Sendable {
+  struct Run: Sendable, Equatable, Codable {
     var text: String
     var style: RemGlkUpdate.TextStyle
     /// Effective look: the window's named-style entry overlaid with this run's

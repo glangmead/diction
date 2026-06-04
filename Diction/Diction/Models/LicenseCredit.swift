@@ -35,20 +35,16 @@ nonisolated struct LicenseCredit: Identifiable, Sendable {
     return text
   }
 
-  /// Interpreters first (emglken bundles Bocfel + Glulxe), then the neural stack.
+  /// Interpreters + Glk stack first, then the neural stack.
   static let all: [LicenseCredit] = [
     LicenseCredit(
-      name: "emglken", role: "Interactive-fiction engine", license: "MIT",
-      author: "Dannii Willis", urlString: "https://github.com/curiousdannii/emglken",
-      licenseResource: "emglken"),
+      name: "Quixe", role: "Glulx interpreter + classic Glk stack", license: "MIT",
+      author: "Andrew Plotkin", urlString: "https://github.com/erkyrath/quixe",
+      licenseResource: "quixe"),
     LicenseCredit(
-      name: "Bocfel", role: "Z-machine interpreter", license: "MIT",
-      author: "Chris Spiegel", urlString: "https://github.com/cspiegel/bocfel",
-      licenseResource: "bocfel"),
-    LicenseCredit(
-      name: "Glulxe", role: "Glulx interpreter", license: "MIT",
-      author: "Andrew Plotkin", urlString: "https://github.com/erkyrath/glulxe",
-      licenseResource: "glulxe"),
+      name: "ifvms.js (ZVM)", role: "Z-machine interpreter", license: "MIT",
+      author: "Dannii Willis", urlString: "https://github.com/curiousdannii/ifvms.js",
+      licenseResource: "ifvms"),
     LicenseCredit(
       name: "FluidAudio", role: "Neural-voice runtime", license: "Apache 2.0",
       author: "FluidInference", urlString: "https://github.com/FluidInference/FluidAudio",
