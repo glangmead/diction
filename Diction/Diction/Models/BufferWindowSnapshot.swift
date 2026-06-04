@@ -5,7 +5,7 @@ import Foundation
 /// fixed-grid `GridWindowSnapshot` this is flowing styled text, accumulated with
 /// the same clear/append semantics as the transcript (via
 /// `StyledText.applyBufferContent`). `top`/`height` come from RemGlk's geometry;
-/// because the app feeds emglken 1×1 cell metrics, `height` is a line count and
+/// because the app feeds the interpreter 1×1 cell metrics, `height` is a line count and
 /// `top` orders the panel (Blue Lacuna's sits at the bottom, `top` 47).
 nonisolated struct BufferWindowSnapshot: Identifiable, Sendable, Equatable, Codable {
   let id: Int

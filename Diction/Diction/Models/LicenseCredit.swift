@@ -17,7 +17,7 @@ nonisolated struct LicenseCredit: Identifiable, Sendable {
   var url: URL? { URL(string: urlString) }
 
   /// `host + path` for a compact, link-styled subtitle, e.g.
-  /// "github.com/curiousdannii/emglken".
+  /// "github.com/erkyrath/quixe".
   var displayLink: String {
     guard let url, let host = url.host else { return urlString }
     return host + url.path

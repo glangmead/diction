@@ -1,7 +1,8 @@
 /* Drives the classic Glk stack (glkapi + per-VM dispatch + ZVM/Quixe) headlessly
- * in a WKWebView. Forwards GlkOte-protocol updates to Swift and routes the VM's
- * own autosave bytes (and fileref prompts) to Swift. Mirrors the Swift-facing
- * protocol of the old emglken bridge so InterpreterSession is unchanged.
+ * in a WKWebView. Forwards GlkOte-protocol updates and the VM's own autosave
+ * bytes to Swift, and answers save/restore fileref prompts itself (single slot,
+ * mirrored to Swift's SaveStorage). Mirrors the Swift-facing protocol the
+ * previous bridge used so InterpreterSession is unchanged.
  *
  * The one wire difference the classic stack introduces — text runs encoded as
  * ["style","text",...] pairs instead of {style,text} objects — is normalised
@@ -146,7 +147,7 @@ class BridgeDialog {
 }
 
 async function storyBytes() {
-  const r = await fetch('emglken://app/file/storyfile')
+  const r = await fetch('glk://app/file/storyfile')
   return new Uint8Array(await r.arrayBuffer())
 }
 
@@ -172,13 +173,13 @@ function blorbExec(u8, type) {
 // autosave_read is synchronous, so the snapshot must be in hand up front.
 window.glkStart = async function (engine) {
   try {
-    const restoreResp = await fetch('emglken://app/restore')
+    const restoreResp = await fetch('glk://app/restore')
     const restoreText = restoreResp.ok ? await restoreResp.text() : ''
     pendingAutosave = restoreText.length ? JSON.parse(restoreText) : null
     // Seed the manual SAVE slot from Swift's SaveStorage (raw bytes, or 404 when
     // the game has no save). file_read returns this synchronously, so it has to
     // be in hand before the VM can RESTORE.
-    const saveResp = await fetch('emglken://app/savedata')
+    const saveResp = await fetch('glk://app/savedata')
     saveSlot = saveResp.ok
       ? Array.from(new Uint8Array(await saveResp.arrayBuffer()))
       : null

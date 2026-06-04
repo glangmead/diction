@@ -8,15 +8,16 @@ import CryptoKit
 // widening access and scattering tightly-coupled mutation. ~436 lines; prefer
 // the exception over leaking internals.
 
-/// Bridges the Swift app to an emglken interpreter (Bocfel or Glulxe compiled to
-/// WASM) running inside a headless `WKWebView`, exchanging RemGlk JSON. The
-/// transport lives in `WebInterpreterHost`: it answers save/restore fileref
-/// prompts internally and routes their bytes to `SaveStorage`, so the updates
-/// this session sees are always settled (never carry `specialinput`).
+/// Bridges the Swift app to a classic-Glk interpreter (ZVM for Z-machine, Quixe
+/// for Glulx, both JavaScript) running inside a headless `WKWebView`, exchanging
+/// RemGlk JSON. The transport lives in `WebInterpreterHost`: it answers
+/// save/restore fileref prompts internally and routes their bytes to
+/// `SaveStorage`, so the updates this session sees are always settled (never
+/// carry `specialinput`).
 ///
 /// Lifecycle:
 ///   1. `load(_:)` detects format, extracts the dictionary, starts a fresh
-///      emglken instance, and applies the first update.
+///      interpreter instance, and applies the first update.
 ///   2. `send(_:)` / `sendCharacter(_:)` forward a RemGlk input event and apply
 ///      the resulting update.
 ///   3. The session is single-use; create a new one for a different game. Each
@@ -84,9 +85,9 @@ final class InterpreterSession {
   /// command records, and data resources on disk.
   private(set) var gameID: String = ""
 
-  /// One emglken instance per session (per game open). GameView creates a fresh
-  /// InterpreterSession for each game, so each gets a fresh webview + WASM
-  /// instance — interpreter globals never carry across games.
+  /// One interpreter instance per session (per game open). GameView creates a
+  /// fresh InterpreterSession for each game, so each gets a fresh webview +
+  /// interpreter — globals never carry across games.
   private let host = WebInterpreterHost()
 
   private var currentGen = 1
@@ -243,7 +244,7 @@ final class InterpreterSession {
     persistSnapshot()
   }
 
-  /// Tears down the emglken instance when leaving the game. Async to match the
+  /// Tears down the interpreter instance when leaving the game. Async to match the
   /// existing call site (`await session.shutdown()` in GameView.onDisappear).
   func shutdown() async {
     host.teardown()
