@@ -76,13 +76,15 @@ struct GameView: View {
       coordinator.useSharedVoice(voiceWarmer)
       coordinator.useEntitlement(store)
       session.snapshotStore = .default   // per-turn autosave + resume-on-open
+      // Set the theme BEFORE loading. The host retains it and `handleBridgeLoaded`
+      // re-injects it ahead of `glkStart`, so the VM's first render is already
+      // themed. Pushing it only after `load()` returns left the opening painted with
+      // glkote.css defaults (cream background, serif) for a frame — a flash of
+      // unstyled content before our style took hold.
+      pushTheme()
       do {
         try await session.load(storyFile.url)
         isLoading = false
-        // The page has loaded by the time `load` returns, so the injected style
-        // lands on a live document. (The host also re-applies it on every
-        // subsequent bridge load, so it survives restore-driven reloads.)
-        pushTheme()
         await coordinator.startOnAppear()
       } catch {
         // Surface the interpreter's own failure detail (the bridge/VM error
