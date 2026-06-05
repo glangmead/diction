@@ -8,10 +8,23 @@ import AVFoundation
 final class SpeechSynthesizer: NSObject {
   private(set) var isSpeaking = false
 
+  /// TTS is unavailable in the Simulator: the neural voice renders into the
+  /// Simulator's audio output as a loud screech (no ANE, broken audio path), so
+  /// every speech entry point no-ops there and the UI disables + turns off the
+  /// narration toggle. Real devices are unaffected.
+  static let isSimulator: Bool = {
+    #if targetEnvironment(simulator)
+    return true
+    #else
+    return false
+    #endif
+  }()
+  var isAvailable: Bool { !Self.isSimulator }
+
   /// True while the neural voice model is loading (cold start can take ~15 s on
   /// device). Lets the game UI show a loading affordance; always false when the
-  /// neural path is off, since the system voice needs no load.
-  var isPreparingVoice: Bool { useKokoro && kokoro.state == .preparing }
+  /// neural path is off (or in the Simulator), since there's no load to wait on.
+  var isPreparingVoice: Bool { isAvailable && useKokoro && kokoro.state == .preparing }
 
   private let synthesizer = AVSpeechSynthesizer()
   private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
@@ -36,6 +49,7 @@ final class SpeechSynthesizer: NSObject {
   }
 
   func speakCommandEcho(_ command: String) async {
+    guard isAvailable else { return }
     if useKokoro {
       await kokoro.prepareIfNeeded()
       if kokoro.isReady {
@@ -61,6 +75,7 @@ final class SpeechSynthesizer: NSObject {
   /// just the current sentence — by setting `isStopped`, which this loop checks
   /// before every utterance.
   func speak(_ entries: [StyledText]) async {
+    guard isAvailable else { return }
     isStopped = false
     if useKokoro {
       await kokoro.prepareIfNeeded()
@@ -120,7 +135,7 @@ final class SpeechSynthesizer: NSObject {
   /// Kick the Kokoro model load early (cold start ~2-3s) so the opening
   /// narration doesn't pay for it. Call from the game view's appear.
   func warmUpKokoro() {
-    guard useKokoro else { return }
+    guard isAvailable, useKokoro else { return }
     Task { await kokoro.prepareIfNeeded() }
   }
 

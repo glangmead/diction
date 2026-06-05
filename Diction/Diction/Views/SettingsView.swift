@@ -5,7 +5,7 @@ import UIKit
 struct SettingsView: View {
   @Environment(\.dismiss) private var dismiss
 
-  // Flowing-text font (defaults must match StyledTextLineView).
+  // Flowing-text font (defaults must match GameView's reading settings).
   @AppStorage("readingTypeface") private var readingTypeface = ReadingTypeface.sansSerif.rawValue
   @AppStorage("readingTextSize") private var readingTextSize = ReadingTextSize.medium.rawValue
 

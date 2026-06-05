@@ -1,10 +1,21 @@
 import SwiftUI
+import UIKit
 
 struct GameView: View {
   let storyFile: StoryFile
 
   @Environment(VoiceWarmer.self) private var voiceWarmer
   @Environment(StoreManager.self) private var store
+  // Reading look for the GlkOte WebView, mirrored from the shared reading-settings
+  // keys. These drive `pushTheme()`, which regenerates and re-injects the
+  // stylesheet whenever any of them changes.
+  @AppStorage("readingTypeface") private var typefaceRaw = ReadingTypeface.sansSerif.rawValue
+  @AppStorage("readingTextSize") private var sizeRaw = ReadingTextSize.medium.rawValue
+  // 17 pt body scaled by the device's Dynamic Type setting; the semantic size
+  // step multiplies on top, matching the old native renderer.
+  @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @State private var session = InterpreterSession()
   @State private var coordinator = VoiceCoordinator()
   @State private var commandText = ""
@@ -23,6 +34,7 @@ struct GameView: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      statusBar
       transcriptView
 
       if let error = loadError {
@@ -67,6 +79,10 @@ struct GameView: View {
       do {
         try await session.load(storyFile.url)
         isLoading = false
+        // The page has loaded by the time `load` returns, so the injected style
+        // lands on a live document. (The host also re-applies it on every
+        // subsequent bridge load, so it survives restore-driven reloads.)
+        pushTheme()
         await coordinator.startOnAppear()
       } catch {
         // Surface the interpreter's own failure detail (the bridge/VM error
@@ -94,6 +110,15 @@ struct GameView: View {
       // fires only on a real mic-off — the per-utterance clear is handled above.)
       if !listening { commandText = "" }
     }
+    // Re-theme the WebView when any input to the stylesheet changes. Each `of:`
+    // value is read here in `body`, so Observation/SwiftUI registers the
+    // dependency and fires `pushTheme()` on a real change — rather than relying on
+    // a body-time closure capturing a first-render snapshot. `pushTheme()` reads
+    // the current property-wrapper values fresh on each call.
+    .onChange(of: typefaceRaw) { pushTheme() }
+    .onChange(of: sizeRaw) { pushTheme() }
+    .onChange(of: colorScheme) { pushTheme() }
+    .onChange(of: dynamicTypeSize) { pushTheme() }
     .onDisappear {
       // Navigating back to the library tears down this view. Release the audio
       // engine and cleanly stop the interpreter before the session is gone, so
@@ -135,6 +160,9 @@ struct GameView: View {
     }
     .accessibilityLabel(coordinator.isSpeaking ? "Mute narration" : "Unmute narration")
     .accessibilityHint("Whether the app reads game responses aloud. Muting stops the current sentence.")
+    // Narration screeches through the Simulator's audio path, so the toggle is
+    // disabled (and off) there; always enabled on a real device.
+    .disabled(!coordinator.synthesizer.isAvailable)
   }
 
   /// Shown while the neural narration voice loads (the model cold-start can take
@@ -152,6 +180,24 @@ struct GameView: View {
       }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Loading narration voice")
+    }
+  }
+
+  // MARK: - Status windows
+
+  /// The game's grid (status) windows — AMFV's mode/location/time bar, etc. —
+  /// drawn natively above the transcript. GlkOte's own grid is minimised + hidden
+  /// (see glk-bridge.html); `StatusWindowView` fits each to width and grows it with
+  /// the reading size, instead of GlkOte clipping a fixed box. Read in `body` so
+  /// Observation re-renders the bar as the interpreter rewrites status rows.
+  @ViewBuilder
+  private var statusBar: some View {
+    if !session.statusWindows.isEmpty {
+      VStack(spacing: 0) {
+        ForEach(session.statusWindows) { window in
+          StatusWindowView(window: window)
+        }
+      }
     }
   }
 
@@ -254,6 +300,44 @@ struct GameView: View {
     .padding(.horizontal)
     .padding(.vertical, 8)
     .background(.gameSurface)
+  }
+
+  // MARK: - Theming
+
+  /// Regenerate the GlkOte stylesheet from the current reading settings and push
+  /// it into the WebView. Reads the live `@AppStorage` / `@Environment` /
+  /// `@ScaledMetric` values fresh on each call (they're view-stored, so this is
+  /// always current), resolves the app palette for the active colour scheme, and
+  /// hands the result to the session. Cheap and idempotent — safe to call on any
+  /// of the inputs changing.
+  private func pushTheme() {
+    let typeface = ReadingTypeface(rawValue: typefaceRaw) ?? .sansSerif
+    let multiplier = (ReadingTextSize(rawValue: sizeRaw) ?? .medium).multiplier
+    // Same compounding the native renderer used: Dynamic-Type-scaled 17 pt base
+    // times the semantic size step. `@ScaledMetric` already folded Dynamic Type
+    // into `baseSize`, so reading it on a `dynamicTypeSize` change reflects it.
+    let pointSize = Double(baseSize * multiplier)
+    let style: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+    let css = GlkThemeCSS.stylesheet(
+      readingFamily: typeface.cssFamily,
+      pointSize: pointSize,
+      textHex: Self.hex(.gameText, style: style),
+      backgroundHex: Self.hex(.gameBackground, style: style)
+    )
+    session.applyThemeCSS(css)
+  }
+
+  /// Resolve an asset-catalog colour for the given interface style and format it
+  /// as a CSS `#RRGGBB` string. Resolving here (rather than letting CSS pick a
+  /// scheme) keeps the WebView in lockstep with the SwiftUI `colorScheme`, which
+  /// the WebView wouldn't otherwise track.
+  private static func hex(_ resource: ColorResource, style: UIUserInterfaceStyle) -> String {
+    let color = UIColor(resource: resource)
+      .resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    let clamp = { (component: CGFloat) -> Int in Int((max(0, min(1, component)) * 255).rounded()) }
+    return String(format: "#%02X%02X%02X", clamp(red), clamp(green), clamp(blue))
   }
 
   // MARK: - Typed dispatch

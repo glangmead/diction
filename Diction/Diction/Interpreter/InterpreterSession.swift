@@ -203,9 +203,12 @@ final class InterpreterSession {
   private func persistSnapshot() {
     guard let snapshotStore, !signature.isEmpty, let engine = engineSnapshot,
           let presentation = try? JSONEncoder().encode(captureSnapshot()) else { return }
+    // Small, separate status artifact for the library preview, so a row needn't
+    // decode the whole presentation snapshot. Nil for games with no status window.
+    let status = statusWindows.isEmpty ? nil : try? JSONEncoder().encode(statusWindows)
     try? snapshotStore.write(
       gameID: gameID, signature: signature,
-      snapshot: GameSnapshot(engine: engine, presentation: presentation))
+      snapshot: GameSnapshot(engine: engine, presentation: presentation, status: status))
   }
 
   /// Drops all but the trailing `count` entries from the transcript.
@@ -264,6 +267,13 @@ final class InterpreterSession {
   /// existing call site (`await session.shutdown()` in GameView.onDisappear).
   func shutdown() async {
     host.teardown()
+  }
+
+  /// Themes GlkOte's rendered output to the app's reading look. The CSS is built
+  /// by `GameView` from the current typeface/size/colour-scheme; the host injects
+  /// it and re-applies it across page reloads (game open / restore).
+  func applyThemeCSS(_ css: String) {
+    host.applyThemeCSS(css)
   }
 
   /// Turns a Glk character-input value into a user-readable echo for the

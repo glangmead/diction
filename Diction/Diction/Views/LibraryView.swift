@@ -218,6 +218,7 @@ struct LibraryView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
+      LibraryStatusPreview(url: story.url, lastPlayed: story.lastPlayed)
     }
     .padding(.vertical, 4)
     .accessibilityElement(children: .combine)

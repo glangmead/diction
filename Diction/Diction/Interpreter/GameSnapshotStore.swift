@@ -7,6 +7,10 @@ import Foundation
 struct GameSnapshot: Equatable, Sendable {
   let engine: Data
   let presentation: Data
+  /// Small, separate status-window artifact (`[GridWindowSnapshot]` JSON) for the
+  /// library row preview, so a row needn't decode the full presentation snapshot.
+  /// Nil when the game has no grid (status) window. Not used for resume.
+  var status: Data?
 }
 
 /// Per-game autosnapshot store, keyed by `gameID` and validated against a story
@@ -16,6 +20,7 @@ struct GameSnapshot: Equatable, Sendable {
 /// Layout (one directory per game under `root`):
 ///   <root>/<gameID>/engine.bin
 ///   <root>/<gameID>/presentation.json
+///   <root>/<gameID>/status.json      (status-bar preview; absent if no grid window)
 ///   <root>/<gameID>/signature.txt
 ///
 /// `root` is injected so tests can point at a temp directory.
@@ -44,6 +49,9 @@ struct GameSnapshotStore {
     try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
     try snapshot.engine.write(to: staging.appendingPathComponent("engine.bin"))
     try snapshot.presentation.write(to: staging.appendingPathComponent("presentation.json"))
+    if let status = snapshot.status {
+      try status.write(to: staging.appendingPathComponent("status.json"))
+    }
     try Data(signature.utf8).write(to: staging.appendingPathComponent("signature.txt"))
 
     try faultBeforePromote?()
@@ -76,6 +84,19 @@ struct GameSnapshotStore {
           let presentation = try? Data(contentsOf: dir.appendingPathComponent("presentation.json"))
     else { return nil }
     return GameSnapshot(engine: engine, presentation: presentation)
+  }
+
+  /// The saved status-window artifact for `gameID` (the library row preview), or
+  /// nil if absent/unreadable/empty. No signature check — it's a cosmetic preview,
+  /// not gameplay state, so a story tweak that invalidates resume still shows the
+  /// last bar until the next play overwrites it.
+  func readStatus(gameID: String) -> [GridWindowSnapshot]? {
+    let url = gameDirectory(gameID).appendingPathComponent("status.json")
+    guard let data = try? Data(contentsOf: url),
+          let windows = try? JSONDecoder().decode([GridWindowSnapshot].self, from: data),
+          !windows.isEmpty
+    else { return nil }
+    return windows
   }
 
   /// Remove all stored state for `gameID`.

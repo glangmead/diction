@@ -15,6 +15,14 @@
      GlkOte's in-page <input> fields (classes Input/LineInput/CharInput,
      glkote.js:1516-1522) — they must never be the entry point here. */
   .Input, .LineInput, .CharInput { display: none !important; }
+  /* The status (grid) windows are rendered natively over the WebView by SwiftUI
+     (StatusWindowView — fit-to-width, grows with the reading size). GlkOte still
+     lays them out, but we minimise + hide them: a tiny font gives a huge column
+     count so the game writes its FULL status line (never truncated; GridReflow
+     compacts the padding), and a near-zero line box keeps the reserved band
+     negligible. visibility:hidden hides GlkOte's own (mangled) grid while keeping
+     its layout box and the content tap. */
+  .GridWindow { font-size: 5px; line-height: 5px; padding: 0; visibility: hidden; }
 </style>
 </head>
 <body>

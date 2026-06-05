@@ -41,6 +41,12 @@ final class WebInterpreterHost: NSObject {
   /// default is rooted in Documents.
   var saveStore = SaveStorage.default
 
+  /// The most recently applied theme stylesheet, retained so it can be re-applied
+  /// whenever the bridge (re)loads. Each game open / restore is a fresh page load
+  /// that drops any previously injected `<style>`, so without this the theme
+  /// would only survive until the next load. Re-applied from `handleBridgeLoaded`.
+  private var latestThemeCSS: String?
+
   override init() {
     super.init()
     let config = WKWebViewConfiguration()
@@ -122,6 +128,35 @@ final class WebInterpreterHost: NSObject {
   }
 
   func log(_ message: String) { FileHandle.standardError.write(Data("[glk] \(message)\n".utf8)) }
+
+  /// Inject (or replace) the theme stylesheet into the page head as a
+  /// `<style id="diction-theme">`. Appended after glkote.css so its
+  /// equal-specificity class selectors win the cascade. The CSS is run through
+  /// `JSONEncoder` to produce a safely-escaped JS string literal — far safer than
+  /// hand-escaping for an arbitrary stylesheet. Stored so it can be re-applied
+  /// after the next page (re)load (see `handleBridgeLoaded`).
+  func applyThemeCSS(_ css: String) {
+    latestThemeCSS = css
+    injectThemeCSS(css)
+  }
+
+  private func injectThemeCSS(_ css: String) {
+    guard let data = try? JSONEncoder().encode(css),
+          let literal = String(data: data, encoding: .utf8) else { return }
+    let script = """
+    (function () {
+      var id = 'diction-theme';
+      var el = document.getElementById(id);
+      if (!el) {
+        el = document.createElement('style');
+        el.id = id;
+        document.head.appendChild(el);
+      }
+      el.textContent = \(literal);
+    })(); 0
+    """
+    webView.evaluateJavaScript(script, completionHandler: nil)
+  }
 }
 
 extension WebInterpreterHost: WKNavigationDelegate {
@@ -174,6 +209,9 @@ extension WebInterpreterHost: WKScriptMessageHandler {
   }
 
   private func handleBridgeLoaded() {
+    // The page just (re)loaded, dropping any prior injected style; re-apply the
+    // retained theme so it survives game open / restore.
+    if let css = latestThemeCSS { injectThemeCSS(css) }
     bootContinuation?.resume()
     bootContinuation = nil
   }

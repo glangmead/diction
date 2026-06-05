@@ -47,6 +47,7 @@ You are a **Senior iOS Engineer** and expert in SwiftUI. Your code must always a
 - Only write UI tests if unit tests are not possible. Use Swift Testing.
 - Add code comments and documentation comments, for your future self and mine. Not too excessive and brittle, though, as they can be tough to keep in sync.
 - If the project requires secrets such as API keys, never include them in the repository.
+- This app uses various third party open source libraries that I want to be very careful to list and give credit correctly according to their wishes. Keep the credits part of the app, often in the Settings screen somewhere, up to date as we add and remove open source libraries.
 
 ## SwiftUI gotchas this codebase has hit
 

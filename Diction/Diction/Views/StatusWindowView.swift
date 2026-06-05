@@ -8,6 +8,14 @@ import SwiftUI
 /// guard); this view does the fit-to-width sizing.
 struct StatusWindowView: View {
   let window: GridWindowSnapshot
+  /// When set (the library row preview), caps the font at this fixed size instead
+  /// of the reading-size slider, so a row shows a compact preview rather than the
+  /// live status-bar size. nil for the in-game bar.
+  var maxFontSizeOverride: CGFloat?
+  /// The bottom hairline separates the in-game bar from the transcript below it.
+  /// Off for the library preview, where the bar stands alone in a rounded panel
+  /// and the rule just reads as a stray dark line.
+  var showsSeparator = true
 
   @AppStorage("readingTextSize") private var sizeRaw = ReadingTextSize.medium.rawValue
   /// 17 pt body scaled by Dynamic Type; the Reading Text step caps the font.
@@ -19,7 +27,7 @@ struct StatusWindowView: View {
   private static let monospaceAdvance: CGFloat = 0.6
 
   private var maxFontSize: CGFloat {
-    baseSize * (ReadingTextSize(rawValue: sizeRaw) ?? .medium).multiplier
+    maxFontSizeOverride ?? baseSize * (ReadingTextSize(rawValue: sizeRaw) ?? .medium).multiplier
   }
 
   var body: some View {
@@ -42,7 +50,9 @@ struct StatusWindowView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(.gameSurface)
     .overlay(alignment: .bottom) {
-      Rectangle().fill(.gameSurfaceBorder).frame(height: 1)
+      if showsSeparator {
+        Rectangle().fill(.gameSurfaceBorder).frame(height: 1)
+      }
     }
     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
     .animation(.easeInOut(duration: 0.2), value: fontSize)

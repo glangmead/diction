@@ -25,7 +25,9 @@ final class VoiceCoordinator {
   /// Input axis — is the app listening to the user.
   private(set) var isListening = true
   /// Output axis — does the app speak. Toggling off stops the current sentence.
-  private(set) var isSpeaking = true
+  /// Off and immutable in the Simulator, where TTS is unavailable (it screeches);
+  /// see `SpeechSynthesizer.isAvailable`.
+  private(set) var isSpeaking = !SpeechSynthesizer.isSimulator
 
   // MARK: - Owned services
 
@@ -116,6 +118,7 @@ final class VoiceCoordinator {
   }
 
   func setSpeaking(_ enabled: Bool) {
+    guard synthesizer.isAvailable else { return }   // TTS off in the Simulator
     isSpeaking = enabled
     if enabled {
       narrateOpeningIfNeeded()
