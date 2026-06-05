@@ -157,7 +157,15 @@ nonisolated struct RemGlkUpdate: Codable, Sendable {
 
   struct InputRequest: Codable, Sendable {
     var id: Int
-    var type: InputType
+    /// The input kind, or nil. RemGlk lists EVERY window awaiting input here; a
+    /// window requesting only hyperlink/mouse input — e.g. a graphics window —
+    /// has an entry with NO `type` key, so it decodes to nil. The session acts
+    /// only on `.line`/`.char`, so nil entries are ignored. This MUST be optional:
+    /// a required `type` threw and dropped the WHOLE update the instant a graphics
+    /// window opened, hanging the turn and stranding the prompt (Counterfeit
+    /// Monkey's map). RemGlk only ever sends "line", "char", or omits `type`, so
+    /// the synthesized `decodeIfPresent` (absent → nil) is sufficient.
+    var type: InputType?
     var maxlen: Int?
     var gen: Int?
     var initial: String?

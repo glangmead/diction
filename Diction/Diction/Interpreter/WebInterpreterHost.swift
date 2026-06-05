@@ -11,7 +11,11 @@ import WebKit
 final class WebInterpreterHost: NSObject {
   enum HostError: Error { case loadFailed, bridge(String) }
 
-  private var webView: WKWebView!
+  /// The interpreter's WKWebView. Surfaced for display: now that the real GlkOte
+  /// renders text/grid/graphics/images inside this page, the rendered output is
+  /// the on-screen surface, so the view layer wraps this same instance rather
+  /// than a separate native transcript.
+  private(set) var webView: WKWebView!
   private let scheme = GlkSchemeHandler()
   /// Resolved when the bridge posts `bridge_loaded` after a page load.
   private var bootContinuation: CheckedContinuation<Void, Error>?
@@ -24,6 +28,13 @@ final class WebInterpreterHost: NSObject {
   /// nil. This is the engine artifact `InterpreterSession` pairs with its
   /// presentation snapshot and persists via `GameSnapshotStore`.
   private(set) var latestAutosave: String?
+
+  /// Invoked for every update received from the bridge — settled or intermediate
+  /// — so the session can apply content / window / narration state from each.
+  /// The async `start`/`send` complete only on a *settled* update (see
+  /// `handleUpdate`), so this fires for the arrange/redraw frames that real GlkOte
+  /// emits mid-turn before the game re-requests input.
+  var onUpdate: ((RemGlkUpdate) -> Void)?
 
   /// Backs the game's manual SAVE slot. Seeded into the bridge at `start` and
   /// updated whenever the bridge mirrors a SAVE. Injected so tests isolate; the
@@ -181,7 +192,26 @@ extension WebInterpreterHost: WKScriptMessageHandler {
           let data = try? JSONSerialization.data(withJSONObject: raw),
           let update = try? JSONDecoder().decode(RemGlkUpdate.self, from: data) else { return }
     if let gen = update.gen { lastGen = gen }
-    pending?.resume(returning: update)
-    pending = nil
+    // Apply EVERY update so content / window / narration state stays current, but
+    // only COMPLETE the pending send/start on a SETTLED update (the game is waiting
+    // for input again, or has exited). Real GlkOte emits several updates per turn —
+    // content, then arrange/redraw when a graphics window changes the layout — so
+    // resolving on an intermediate one would drop the later input request and
+    // strand the prompt (Counterfeit Monkey's map).
+    onUpdate?(update)
+    if Self.isSettled(update) {
+      pending?.resume(returning: update)
+      pending = nil
+    }
+  }
+
+  /// A "settled" update ends a turn: the game is waiting for input again (ANY
+  /// kind — a graphics window requesting only hyperlink/mouse input counts, or
+  /// the turn would hang), or it has exited / disabled the UI. Intermediate
+  /// updates (pure content, arrange, redraw) are applied but don't complete the
+  /// await.
+  private static func isSettled(_ update: RemGlkUpdate) -> Bool {
+    if update.exit == true || update.disable == true { return true }
+    return !(update.input?.isEmpty ?? true)
   }
 }

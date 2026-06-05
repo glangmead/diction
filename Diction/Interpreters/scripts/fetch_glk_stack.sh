@@ -6,9 +6,11 @@
 #  - Quixe (built lib/quixe.min.js) AND the internally-consistent classic Glk
 #    stack it vendors (glkapi/dialog/gi_blorb in src/glkote, gi_dispa/gi_load in
 #    src/quixe) come from erkyrath/quixe at a pinned commit. Taking the whole
-#    Glk+Quixe half from one commit avoids cross-repo version skew. The bridge
-#    supplies its own headless GlkOte, so the jQuery-bound glkote.js display
-#    layer is deliberately NOT vendored.
+#    Glk+Quixe half from one commit avoids cross-repo version skew. The real
+#    GlkOte display layer (src/glkote/glkote.js + media/glkote.css) is now
+#    vendored from the same commit so images and graphics windows render; it
+#    needs jQuery (>=1.9.0), so the bundled lib/jquery-1.12.4.min.js (the version
+#    Lectrote pins) is vendored as jquery.min.js too.
 #  - ZVM (the Z-machine VM) comes from the curiousdannii/ifvms npm package,
 #    pinned exactly in package.json, because its built dist/zvm.js is not
 #    committed to the repo. Run `npm install` before this script.
@@ -45,6 +47,17 @@ cp "$SOURCES/quixe/src/quixe/gi_dispa.js"  "$RES/gi_dispa.js"
 cp "$SOURCES/quixe/src/quixe/gi_load.js"   "$RES/gi_load.js"
 cp "$SOURCES/quixe/LICENSE"                "$LICENSES/quixe.txt"
 
+echo "Copying real GlkOte display layer + jQuery into Resources"
+cp "$SOURCES/quixe/src/glkote/glkote.js"      "$RES/glkote.js"
+cp "$SOURCES/quixe/media/glkote.css"          "$RES/glkote.css"
+cp "$SOURCES/quixe/lib/jquery-1.12.4.min.js"  "$RES/jquery.min.js"
+
+# Diction patch: GlkOte's MORE paging (perform_paging) suits a paged terminal,
+# not a continuous-scroll voice reader — an un-dismissable MORE prompt strands
+# the text. Flip it off so the buffer always scrolls to the bottom. Re-applied
+# here so a re-fetch of pristine glkote.js can't silently restore paging.
+sed -i '' 's|const perform_paging = true;|const perform_paging = false; // Diction: continuous scroll, no MORE paging (re-applied by fetch_glk_stack.sh)|' "$RES/glkote.js"
+
 echo "Copying ZVM (ifvms) into Resources"
 if [ ! -f "$NODE_MODULES/ifvms/dist/zvm.js" ]; then
   echo "error: node_modules/ifvms/dist/zvm.js missing — run 'npm install' first" >&2
@@ -59,3 +72,4 @@ cp "$NODE_MODULES/ifvms/LICENSE"     "$LICENSES/ifvms.txt"
 
 echo "Glk stack vendored into $RES:"
 echo "  quixe.min.js glkapi.js dialog.js gi_blorb.js gi_dispa.js gi_load.js zvm.js"
+echo "  glkote.js glkote.css jquery.min.js"

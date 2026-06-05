@@ -1,8 +1,11 @@
-/* Drives the classic Glk stack (glkapi + per-VM dispatch + ZVM/Quixe) headlessly
- * in a WKWebView. Forwards GlkOte-protocol updates and the VM's own autosave
- * bytes to Swift, and answers save/restore fileref prompts itself (single slot,
- * mirrored to Swift's SaveStorage). Mirrors the Swift-facing protocol the
- * previous bridge used so InterpreterSession is unchanged.
+/* Drives the classic Glk stack (glkapi + per-VM dispatch + ZVM/Quixe) in a
+ * WKWebView. Uses the REAL vendored GlkOte (glkote.js) to render text/grid/
+ * graphics windows into the page DOM, while ALSO forwarding GlkOte-protocol
+ * updates and the VM's own autosave bytes to Swift (the "tap") so the native
+ * voice/narration stack keeps receiving content. Answers save/restore fileref
+ * prompts itself (single slot, mirrored to Swift's SaveStorage). Mirrors the
+ * Swift-facing protocol the previous bridge used so InterpreterSession is
+ * unchanged.
  *
  * The one wire difference the classic stack introduces — text runs encoded as
  * ["style","text",...] pairs instead of {style,text} objects — is normalised
@@ -15,11 +18,6 @@
 
 function post(stage, payload) {
   try { window.webkit.messageHandlers.interp.postMessage({ stage, payload: payload ?? null }) } catch (e) {}
-}
-
-const METRICS = {
-  width: 80, height: 50, buffercharwidth: 1, buffercharheight: 1,
-  gridcharwidth: 1, gridcharheight: 1, buffermarginx: 0, buffermarginy: 0, gridmarginx: 0, gridmarginy: 0,
 }
 
 // Classic GlkOte encodes a line's runs as ["style","text","style","text",...]
@@ -63,87 +61,160 @@ function bytesToB64(arr) {
   return btoa(binary)
 }
 
-// Headless GlkOte: the 7-method interface glkapi actually calls. Sends the init
-// event itself (no display layer to supply metrics), forwards updates to Swift.
-class BridgeGlkOte {
-  constructor() { this.accept_func = () => {}; this.is_inited = false }
-  init(iface) {
-    this.accept_func = iface.accept
-    this.is_inited = true
-    setTimeout(() => this.accept_func({ type: 'init', gen: 0, metrics: METRICS, support: ['timer', 'hyperlinks'] }), 0)
-  }
-  update(data) {
-    // The game's SAVE/RESTORE verbs surface as a fileref_prompt specialinput.
-    // Answer it ourselves (single slot, no user filename) and DON'T forward this
-    // update — Swift never sees the prompt, so its input model is unchanged and
-    // send("save") just resolves on the resulting "Ok." update. Deferred by a
-    // microtask so the current glkapi cycle unwinds before we re-enter accept().
-    const special = data.specialinput
+// Install the real GlkOte plus an update-tap wrapper. The real instance renders
+// text/grid/graphics into the page DOM (and resolves Blorb images via the Blorb
+// we hand glkapi); the wrapper additionally forwards each update's content to
+// Swift so the native voice/narration path keeps working. glkapi honours the
+// GlkOte we pass in Glk.init's options (glkapi.js:86-88), so this instance is
+// the one it drives.
+//
+// glkapi calls GlkOte.update(dataobj, gli_autorestore_glkstate) (glkapi.js:781),
+// but glkapi.js:779 nulls gli_autorestore_glkstate first, so that 2nd arg is
+// always null. The wrapper still forwards ALL arguments via `arguments`
+// defensively; autorestore actually travels on dataobj.autorestore (set at
+// glkapi.js:778, read by glkote_update at glkote.js:640-641), not as a 2nd param.
+// The generation GlkOte last rendered — equals glkapi's current event_generation.
+// Native input is stamped with this (see glkSendEvent) so it can't go stale when
+// arrange/refresh events advance the generation between turns.
+let lastGen = null
+
+function installGlkOte() {
+  glkote = new window.GlkOteClass()
+  const realUpdate = glkote.update.bind(glkote)
+  glkote.update = function (data) {
+    if (data && data.gen != null) lastGen = data.gen
+    // The game's SAVE/RESTORE verbs surface as a fileref_prompt specialinput
+    // (glkapi.js:5132-5145, attached to the update at glkapi.js:758-760). The
+    // real GlkOte would route this to Dialog.open() (glkote.js:1665), which our
+    // BridgeDialog doesn't implement; instead we answer it ourselves (single
+    // slot, no user filename) and DON'T call the real update — there's no new
+    // window content on a prompt frame, so nothing to render, and Swift never
+    // sees the prompt, so its input model is unchanged and send("save") just
+    // resolves on the resulting "Ok." update. Deferred by a microtask so the
+    // current glkapi cycle unwinds before we re-enter accept().
+    const special = data && data.specialinput
     if (special && special.type === 'fileref_prompt') {
       const gen = data.gen
       Promise.resolve().then(() => answerFileref(special, gen))
       return
     }
-    // glkapi's select posts the display update, THEN runs do_vm_autosave
-    // synchronously. Defer our update post by a microtask so it reaches Swift
-    // AFTER the move's autosave message — otherwise send() resolves on the
+    // Render first (real GlkOte reads `data` directly), THEN tap. shimUpdate
+    // mutates in place, so deep-copy before shimming so we don't corrupt what
+    // GlkOte rendered. glkapi's select posts the display update, THEN runs
+    // do_vm_autosave synchronously; defer our post by a microtask so it reaches
+    // Swift AFTER the move's autosave message — otherwise send() resolves on the
     // update with the previous turn's snapshot still latest, and a restore lands
     // one move stale.
-    const shimmed = shimUpdate(data)
+    realUpdate.apply(glkote, arguments)
+    let copy
+    try { copy = JSON.parse(JSON.stringify(data)) } catch (e) { return }
+    const shimmed = shimUpdate(copy)
     Promise.resolve().then(() => post('update', shimmed))
   }
-  save_allstate() { return {} }   // display is restored from Swift's presentation snapshot
-  // glkapi.getlibrary delegates here; Quixe resolves its Dialog (for autosave)
-  // via GlkOte.getlibrary('Dialog'), so we must return it.
-  getlibrary(name) { return name === 'Blorb' ? blorb : name === 'Dialog' ? dialog : null }
-  getinterface() { return {} }
-  inited() { return this.is_inited }
-  log() {}
-  warning() {}
-  error(msg) { post('error', String(msg)) }
-  getdomcontext() { return null }
-  setdomcontext() {}
 }
 
 // Answer a fileref_prompt the game raised for its SAVE/RESTORE verb. Single
 // slot, so we construct the ref ourselves rather than asking the user for a
-// name. The gen MUST match the prompt's update generation or glkapi silently
-// drops the event (accept_ui_event's generation guard). Only the `save` filetype
+// name. We feed the response straight to glkapi's accept callback — on the real
+// GlkOte that's reached via getinterface().accept (== glkapi's accept_ui_event,
+// set at glkapi.js:104), not the stub's old accept_func property. The gen MUST
+// match the prompt's update generation or glkapi silently drops the event
+// (accept_ui_event's generation guard, glkapi.js:138). Only the `save` filetype
 // is backed by a slot; transcript/command/data prompts are cancelled (null ref),
-// which makes the game print its own "cancelled" message.
+// which makes the game print its own "cancelled" message. glkapi turns this
+// response into a fileref (glkapi.js:5151-5174); the VM then reads/writes it
+// through BridgeDialog's synchronous file_* API, backed by saveSlot.
 function answerFileref(special, gen) {
   if (!glkote) return
+  const iface = glkote.getinterface()
+  if (!iface || !iface.accept) return
   const ref = special.filetype === 'save'
     ? dialog.file_construct_ref('save', special.filetype, special.gameid)
     : null
-  glkote.accept_func({ type: 'specialresponse', response: 'fileref_prompt', value: ref, gen })
+  iface.accept({ type: 'specialresponse', response: 'fileref_prompt', value: ref, gen })
 }
 
+// Named/temp files (glk_fileref_create_by_name / _temp — e.g. Counterfeit
+// Monkey's Inform 7 external-data file, opened on its FIRST turn) get their own
+// session-only, in-memory keyed store, kept SEPARATE from the manual SAVE slot so
+// a game's data file can't collide with or corrupt the player's save. Only the
+// save slot (usage 'save') is mirrored to Swift's SaveStorage.
+const namedFiles = {}
+let tempRefCounter = 0
+
+// The manual SAVE slot is identified by the 'save' usage the SAVE/RESTORE prompt
+// path constructs (answerFileref → file_construct_ref('save', 'save', …)).
+// Everything else is a session-only named/temp file.
+function isSaveRef(ref) { return !!ref && ref.usage === 'save' }
+
 // Dialog: autosave routes to/from Swift (the resume mechanism); the synchronous
-// fileref API backs the game's own SAVE/RESTORE verb with a single in-memory
-// slot (`saveSlot`), seeded from and mirrored to Swift's SaveStorage.
+// fileref API backs the game's SAVE/RESTORE verb with a single in-memory slot
+// (`saveSlot`, seeded from and mirrored to Swift's SaveStorage), plus an
+// in-memory store for game-named data/temp files.
 class BridgeDialog {
   constructor() { this.streaming = false }
+  // Real GlkOte calls Dialog.inited() at init (glkote.js:365); a truthy return
+  // makes glkote_init SKIP its init block (init/init_async, glkote.js:366-384).
+  // Our dialog is purely synchronous and in-memory — no async setup — so report
+  // ready immediately. (Without this, glkote_init throws TypeError and the VM
+  // never starts.)
+  inited() { return true }
+  // Referenced by glkote_init's (now-skipped) init block (glkote.js:381). A
+  // no-op satisfies the reference; there is nothing to set up.
+  init() {}
   autosave_write(signature, snapshot) { post('autosave', snapshot ? JSON.stringify(snapshot) : null) }
   autosave_read(signature) { return pendingAutosave }
 
-  // Single slot: the filename is ignored. A non-null ref signals "slot exists to
-  // open"; glkapi/ZVM then call file_read / file_write on it.
-  file_construct_ref(filename, usage, gameid) { return { filename: 'save', usage: usage, gameid: gameid } }
-  file_ref_exists() { return saveSlot != null }
-  // Return a copy so the VM can't mutate our canonical slot in place.
-  file_read() { return saveSlot != null ? saveSlot.slice() : null }
-  // glkapi opens a write file by truncating (empty string, israw), then writes
-  // the byte array on close. Reset the slot on truncate but only mirror real
-  // bytes to Swift — persisting the transient empty would just be overwritten a
-  // microtask later.
+  // Sanitize a game-supplied fixed filename (glk_fileref_create_by_name) into a
+  // stable key. Real GlkOte's Dialog provides this; WITHOUT it the call throws
+  // and games that open a by-name file at startup (Counterfeit Monkey) crash
+  // before booting (glkapi.js:5101).
+  file_clean_fixed_name(filename, filetype) {
+    let name = String(filename == null ? '' : filename).replace(/[\/\\:*?"<>| -]/g, '-')
+    name = name.replace(/^[.\-]+/, '')
+    return name || 'null'
+  }
+
+  // A temporary fileref (glk_fileref_create_temp). Session-only, in-memory.
+  file_construct_temp_ref(usage) { return { filename: '*temp*' + (tempRefCounter++), usage: usage } }
+
+  // Carry the real filename through so file I/O routes to the right store: the
+  // save slot (usage 'save') vs a named file (its own key). The SAVE prompt path
+  // passes ('save', 'save', …); by-name/temp files pass their cleaned name.
+  file_construct_ref(filename, usage, gameid) { return { filename: filename, usage: usage, gameid: gameid } }
+
+  // Route by backing store. A missing/odd ref degrades to "no file" rather than
+  // throwing, so an unexpected Glk call can't kill the VM.
+  file_ref_exists(ref) {
+    if (isSaveRef(ref)) return saveSlot != null
+    const key = ref && ref.filename
+    return key != null && namedFiles[key] != null
+  }
+  // Return a copy so the VM can't mutate our canonical store in place.
+  file_read(ref) {
+    if (isSaveRef(ref)) return saveSlot != null ? saveSlot.slice() : null
+    const key = ref && ref.filename
+    return (key != null && namedFiles[key] != null) ? namedFiles[key].slice() : null
+  }
+  // glkapi opens a write file by truncating (empty string / israw), then writes
+  // the byte array on close. For the save slot, only mirror real bytes to Swift
+  // (the transient empty would just be overwritten a microtask later).
   file_write(ref, content, israw) {
-    if (israw || typeof content === 'string') { saveSlot = []; return true }
-    saveSlot = content.slice()
-    post('savewrite', bytesToB64(saveSlot))
+    if (isSaveRef(ref)) {
+      if (israw || typeof content === 'string') { saveSlot = []; return true }
+      saveSlot = content.slice()
+      post('savewrite', bytesToB64(saveSlot))
+      return true
+    }
+    const key = (ref && ref.filename) || '*anon*'
+    namedFiles[key] = (israw || typeof content === 'string') ? [] : content.slice()
     return true
   }
-  file_remove_ref() { saveSlot = null; post('savedelete') }
+  file_remove_ref(ref) {
+    if (isSaveRef(ref)) { saveSlot = null; post('savedelete'); return }
+    const key = ref && ref.filename
+    if (key != null) delete namedFiles[key]
+  }
 }
 
 async function storyBytes() {
@@ -184,14 +255,25 @@ window.glkStart = async function (engine) {
       ? Array.from(new Uint8Array(await saveResp.arrayBuffer()))
       : null
     blorb = new window.BlorbClass()
-    glkote = new BridgeGlkOte()
+    installGlkOte()
     dialog = new BridgeDialog()
     const Glk = window.Glk
     let image = await storyBytes()
     // Unwrap a Blorb to the bare game image the VM expects (Glulx → GLUL,
-    // Z-machine → ZCOD); raw story files pass through unchanged.
+    // Z-machine → ZCOD); raw story files pass through unchanged. When the story
+    // IS a Blorb container, initialise the Blorb with the FULL bytes first so
+    // get_image_url can resolve picture resources for graphics rendering — the
+    // canonical loader does the same (gi_load.js:586). blorb_init's blorbbytes
+    // branch indexes the byte array directly and uses .length/.slice (gi_blorb
+    // .js:248-275), all valid on the Uint8Array storyBytes() returns, so no
+    // Array.from is needed. Without the `format:'blorbbytes'` opt, init would
+    // treat the bytes as a resource-object array (gi_blorb.js:219) and corrupt.
     const exec = blorbExec(image, engine === 'quixe' ? 'GLUL' : 'ZCOD')
-    if (exec) image = exec
+    if (exec) {
+      try { if (!(blorb.inited && blorb.inited())) blorb.init(image, { format: 'blorbbytes' }) }
+      catch (e) { post('error', 'blorb init: ' + String((e && e.stack) || e)) }
+      image = exec
+    }
 
     if (engine === 'zvm') {
       const vm = new window.ZVM()
@@ -222,9 +304,30 @@ window.glkStart = async function (engine) {
   }
 }
 
+// Native input (the SwiftUI bar) is fed straight into glkapi's input handling,
+// the same RemGlk line/char/etc. events the real GlkOte would otherwise send.
+// We route through getinterface().accept (== glkapi's accept_ui_event) rather
+// than driving GlkOte's hidden <input> element: Diction owns input, GlkOte's in-
+// page fields are CSS-hidden, and glkapi echoes the line into the buffer window
+// itself, so the rendered transcript stays correct. The real GlkOte has no
+// accept_func property (that was the old stub); getinterface() returns the iface
+// glkapi passed at init (glkote.js:1763-1765), whose accept is accept_ui_event.
 window.glkSendEvent = function (json) {
   if (!glkote) { post('error', 'event before ready'); return }
-  try { glkote.accept_func(JSON.parse(json)) } catch (e) { post('error', 'event: ' + String((e && e.stack) || e)) }
+  try {
+    const iface = glkote.getinterface()
+    if (!iface || !iface.accept) { post('error', 'event before init'); return }
+    const ev = JSON.parse(json)
+    // Stamp with the generation GlkOte last rendered (== glkapi's current
+    // event_generation). Swift's tracked gen goes stale whenever real GlkOte
+    // emits an arrange/refresh event between turns — the keyboard or input bar
+    // resizing the WebView advances event_generation (glkapi.js:142) — and glkapi
+    // then SILENTLY drops an input whose gen doesn't match (glkapi.js:138), so the
+    // game never progresses. The old headless stub used fixed metrics and never
+    // resized, so this desync is new. lastGen always matches what glkapi expects.
+    if (ev && typeof ev === 'object' && lastGen != null) ev.gen = lastGen
+    iface.accept(ev)
+  } catch (e) { post('error', 'event: ' + String((e && e.stack) || e)) }
 }
 
 window.onerror = (msg, src, line, col, err) => post('error', String((err && err.stack) || msg))

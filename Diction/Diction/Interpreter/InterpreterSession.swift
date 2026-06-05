@@ -1,12 +1,16 @@
 import Foundation
 import CryptoKit
+import WebKit
 
 // swiftlint:disable file_length
 // Pitch for the exception: this type owns both RemGlk update ingestion (apply +
 // window/content handling) and resume snapshot capture/restore. Both mutate its
 // `private` state, so they can't move to an extension in another file without
 // widening access and scattering tightly-coupled mutation. ~436 lines; prefer
-// the exception over leaking internals.
+// the exception over leaking internals. The same reasoning covers the
+// `type_body_length` disable on the declaration below: the body sits one line
+// over the 250 limit and its only members are this coupled state — nothing
+// extractable without widening access.
 
 /// Bridges the Swift app to a classic-Glk interpreter (ZVM for Z-machine, Quixe
 /// for Glulx, both JavaScript) running inside a headless `WKWebView`, exchanging
@@ -25,6 +29,7 @@ import CryptoKit
 ///      never carry across games.
 @Observable
 @MainActor
+// swiftlint:disable:next type_body_length
 final class InterpreterSession {
   /// Output entries appended over the course of play, in order.
   private(set) var transcript: [StyledText] = []
@@ -89,6 +94,10 @@ final class InterpreterSession {
   /// fresh InterpreterSession for each game, so each gets a fresh webview +
   /// interpreter — globals never carry across games.
   private let host = WebInterpreterHost()
+
+  /// The interpreter's WebView, surfaced so the view layer can display GlkOte's
+  /// rendered output. Read-only; the session owns the host's lifecycle.
+  var interpreterWebView: WKWebView { host.webView }
 
   private var currentGen = 1
   private var currentWindow = 0
@@ -156,13 +165,16 @@ final class InterpreterSession {
     }
     let engine = (detected == .glulx) ? "quixe" : "zvm"
     host.saveStore = saveStore
+    // Apply every update the host receives — including the arrange/redraw frames
+    // real GlkOte emits mid-turn — so window / input / narration state never
+    // drifts. The async start/send below complete only on a *settled* update.
+    host.onUpdate = { [weak self] update in self?.apply(update) }
     signature = Self.signature(for: storyData)
     // Resume from the store unless an explicit snapshot was passed (tests).
     let stored = explicitRestore == nil ? snapshotStore?.read(gameID: gameID, signature: signature) : nil
     do {
-      let first = try await host.start(
+      _ = try await host.start(
         story: storyData, engine: engine, gameID: gameID, restore: explicitRestore ?? stored?.engine)
-      apply(first)
       // Repaint the saved display over the interpreter's (minimal) post-restore
       // update — but keep the live protocol state the interpreter just set, so
       // the next command targets the right window/generation.
@@ -215,7 +227,9 @@ final class InterpreterSession {
     transcript.append(.userInput(command))
     let clearsBefore = transcriptClears
     do {
-      apply(try await host.send(line: command, gen: currentGen, window: currentWindow))
+      // The host applies every update via `onUpdate`; it returns once a settled
+      // (input-requesting or exit) update completes the turn.
+      _ = try await host.send(line: command, gen: currentGen, window: currentWindow)
     } catch {
       lastError = "send failed: \(error)"
     }
@@ -236,7 +250,9 @@ final class InterpreterSession {
     transcript.append(.userInput(displayLabel(forKey: value)))
     let clearsBefore = transcriptClears
     do {
-      apply(try await host.send(char: value, gen: currentGen, window: currentWindow))
+      // The host applies every update via `onUpdate`; it returns once a settled
+      // (input-requesting or exit) update completes the turn.
+      _ = try await host.send(char: value, gen: currentGen, window: currentWindow)
     } catch {
       lastError = "send failed: \(error)"
     }
@@ -324,13 +340,28 @@ final class InterpreterSession {
       }
     }
 
-    if let inputReq = update.input?.first(where: { $0.type == .line || $0.type == .char }) {
-      currentGen = inputReq.gen ?? (update.gen ?? currentGen)
-      currentWindow = inputReq.id
-      inputMode = inputReq.type
-    } else {
+    // Input state. When the `input` array is PRESENT it is authoritative — a
+    // line/char request sets the mode; an array without one means input was
+    // cancelled. When it's ABSENT the update simply doesn't touch input: real
+    // GlkOte itself only adjusts input "if arg.input != null" (glkote.js:705-712),
+    // and it emits input-less updates for arrange / redraw / graphics events when
+    // a window resizes. We must keep the current mode then, or the prompt vanishes
+    // the moment a graphics window rearranges the layout (Counterfeit Monkey's map,
+    // graphwintest). `exit` ends play, so it clears the mode regardless.
+    if update.exit == true {
       currentGen = update.gen ?? currentGen
       inputMode = nil
+    } else if let input = update.input {
+      if let inputReq = input.first(where: { $0.type == .line || $0.type == .char }) {
+        currentGen = inputReq.gen ?? (update.gen ?? currentGen)
+        currentWindow = inputReq.id
+        inputMode = inputReq.type
+      } else {
+        currentGen = update.gen ?? currentGen
+        inputMode = nil
+      }
+    } else {
+      currentGen = update.gen ?? currentGen
     }
   }
 

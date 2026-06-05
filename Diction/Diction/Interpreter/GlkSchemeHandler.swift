@@ -53,13 +53,17 @@ final class GlkSchemeHandler: NSObject, WKURLSchemeHandler {
     "/gi_load.js": ("gi_load", "js"),
     "/quixe.min.js": ("quixe.min", "js"),
     "/zvm.js": ("zvm", "js"),
-    "/zvm_dispatch.js": ("zvm_dispatch", "js")
+    "/zvm_dispatch.js": ("zvm_dispatch", "js"),
+    "/glkote.js": ("glkote", "js"),
+    "/glkote.css": ("glkote", "css"),
+    "/jquery.min.js": ("jquery.min", "js")
   ]
 
   private static func mime(forExt ext: String) -> String {
     switch ext {
     case "html": "text/html"
     case "js": "text/javascript"
+    case "css": "text/css"
     default: "application/octet-stream"
     }
   }
