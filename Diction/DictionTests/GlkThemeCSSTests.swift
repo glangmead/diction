@@ -44,6 +44,18 @@ struct GlkThemeCSSTests {
     #expect(css.contains("#gameport"))
   }
 
+  @Test("Buffer lines break long unbroken tokens so they can't overflow the column")
+  func bufferLinesBreakLongWords() {
+    // glkote.css forbids the horizontal scrollbar and only wraps at spaces, so
+    // without this rule a single long token (run-on transcription, URL, long
+    // typo, or its bold echo) is clipped off the right edge. See BUG F.
+    let css = sampleCSS()
+    #expect(css.contains(".BufferLine"))
+    // `anywhere`, not `break-word`: .BufferWindow is shrink-to-fit (position:absolute),
+    // so break-word would keep the token in min-content and never break. See BUG F.
+    #expect(css.contains("overflow-wrap: anywhere"))
+  }
+
   @Test("Whole-number sizes drop the trailing .0")
   func wholeNumberSize() {
     let css = GlkThemeCSS.stylesheet(

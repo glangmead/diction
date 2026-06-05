@@ -205,7 +205,13 @@ struct GameView: View {
 
   private var transcriptView: some View {
     ZStack {
+      // Tie the representable's identity to the session instance. `UIViewRepresentable`
+      // calls `makeUIView` only once, so when "Start Over" swaps in a fresh session
+      // (and thus a fresh WKWebView), SwiftUI would otherwise keep showing the old
+      // session's webView — narration restarts but the screen stays frozen on the
+      // pre-reset state. `.id` forces a rebuild so the new webView is the one on screen.
       InterpreterWebView(webView: session.interpreterWebView)
+        .id(ObjectIdentifier(session))
       if isLoading {
         ProgressView()
       }

@@ -56,6 +56,12 @@ final class WebInterpreterHost: NSObject {
     config.userContentController = ucc
     webView = WKWebView(frame: .zero, configuration: config)
     webView.navigationDelegate = self
+    #if DEBUG
+    // iOS 16.4+ hides a third-party app's WKWebView from Safari's Develop menu
+    // unless it opts in. Enable it in DEBUG so the GlkOte DOM/console can be
+    // inspected on device (e.g. diagnosing graphics-window layout). Never in release.
+    webView.isInspectable = true
+    #endif
   }
 
   /// Loads the story into a fresh ZVM/Quixe instance and returns the first update

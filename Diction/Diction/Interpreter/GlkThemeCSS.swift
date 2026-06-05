@@ -40,6 +40,19 @@ enum GlkThemeCSS {
     .BufferWindow {
       background-color: \(backgroundHex);
     }
+    /* glkote.css gives .BufferLine `white-space: pre-wrap`, which wraps at spaces
+       but never breaks a single long token, while .BufferWindow forbids the
+       horizontal scrollbar (`overflow-x: hidden`) — so an unbroken run longer than
+       the column (a run-on voice transcription, a pasted URL, a typo'd long word,
+       or the bold echo of one) is clipped off the right edge. `anywhere` — not the
+       weaker `break-word` — is required: .BufferWindow is `position: absolute`, so
+       it's shrink-to-fit, and `break-word` keeps the whole token in the element's
+       min-content width (the box just grows to fit it, nothing overflows, no break).
+       `anywhere` shrinks min-content so the box stays at the column width and the
+       last-resort in-token break actually happens. Normal spaced prose is untouched. */
+    .BufferWindow, .BufferWindow .BufferLine {
+      overflow-wrap: anywhere;
+    }
     html, body, #gameport {
       background-color: \(backgroundHex);
     }
