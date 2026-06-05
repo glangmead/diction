@@ -42,6 +42,14 @@ nonisolated struct LicenseCredit: Identifiable, Sendable {
       author: "Andrew Plotkin", urlString: "https://github.com/erkyrath/quixe",
       licenseResource: "quixe"),
     LicenseCredit(
+      name: "GlkOte", role: "Web display layer — text, grid + graphics windows", license: "MIT",
+      author: "Andrew Plotkin", urlString: "https://github.com/erkyrath/glkote",
+      licenseResource: "quixe"),   // vendored from the Quixe repo under Plotkin's MIT license
+    LicenseCredit(
+      name: "jQuery", role: "DOM toolkit required by GlkOte", license: "MIT",
+      author: "jQuery Foundation", urlString: "https://github.com/jquery/jquery",
+      licenseResource: "jquery"),
+    LicenseCredit(
       name: "ifvms.js (ZVM)", role: "Z-machine interpreter", license: "MIT",
       author: "Dannii Willis", urlString: "https://github.com/curiousdannii/ifvms.js",
       licenseResource: "ifvms"),
