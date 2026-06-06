@@ -580,6 +580,10 @@ function update() {
             obj.top = win.bbox.top;
             obj.width = win.bbox.right - win.bbox.left;
             obj.height = win.bbox.bottom - win.bbox.top;
+
+            var stylehints = gli_styles_for_wintype(win.type);
+            if (stylehints)
+                obj.styles = stylehints;
         }
     }
 
@@ -987,6 +991,11 @@ function save_allstate() {
     /* Save GlkOte-level information. This includes the overall metrics. */
     res.glkote = GlkOte.save_allstate();
 
+    /* Per-style colour hints (Diction): a resumed game won't re-run its startup
+       glk_stylehint_set calls, so persist them or restored play loses its
+       colours. */
+    res.stylehints = gli_stylehints;
+
     return res;
 }
 
@@ -999,6 +1008,10 @@ function restore_allstate(res)
     
     if (gli_windowlist || gli_streamlist || gli_filereflist)
         throw('restore_allstate: glkapi module has already been launched');
+
+    /* Restore the per-style colour hints (Diction) so resumed play keeps its
+       colours; absent in autosaves written before this existed. */
+    gli_stylehints = res.stylehints || {};
 
     /* We build and register all the bare objects first. (In reverse
        order so that the linked lists come out right way around.) */
@@ -2892,8 +2905,14 @@ var gli_autorestore_glkstate = null;
 /* Beginning of linked list of windows. */
 var gli_windowlist = null;
 var gli_rootwin = null;
+/* Accumulated glk_stylehint_set values: gli_stylehints[wintype][style][hint].
+   Stock Quixe leaves glk_stylehint_set a no-op, so per-style colours/weights a
+   game requests (Blue Lacuna's keyword colours) never render. We record them and
+   emit them as a per-window `styles` table in the update (see update()), which
+   the Swift side turns into CSS. */
+var gli_stylehints = {};
 /* Set when any window is created, destroyed, or resized. */
-var geometry_changed = true; 
+var geometry_changed = true;
 /* Received from GlkOte; describes the window size. */
 var content_metrics = null;
 
@@ -5296,8 +5315,76 @@ function glk_char_to_upper(val) {
 }
 
 /* Style hints are not supported. We will use the new style system. */
-function glk_stylehint_set(wintype, styl, hint, value) { }
-function glk_stylehint_clear(wintype, styl, hint) { }
+function glk_stylehint_set(wintype, styl, hint, value) {
+    if (!gli_stylehints[wintype])
+        gli_stylehints[wintype] = {};
+    if (!gli_stylehints[wintype][styl])
+        gli_stylehints[wintype][styl] = {};
+    gli_stylehints[wintype][styl][hint] = value;
+}
+function glk_stylehint_clear(wintype, styl, hint) {
+    if (gli_stylehints[wintype] && gli_stylehints[wintype][styl])
+        delete gli_stylehints[wintype][styl][hint];
+}
+
+/* Build the CSS-ish `styles` table (keyed `.Style_<name>`) for a window of the
+   given type, from the accumulated style hints — wintype_AllTypes (0) overlaid by
+   the specific wintype. Returns null when nothing applies. Mirrors RemGlk's
+   per-window styles serialization so the Swift decoder reads it unchanged. */
+function gli_styles_for_wintype(wintype) {
+    var result = {};
+    var any = false;
+    var sources = [0, wintype];
+    for (var six=0; six<sources.length; six++) {
+        var byStyle = gli_stylehints[sources[six]];
+        if (!byStyle)
+            continue;
+        for (var styl in byStyle) {
+            var name = StyleNameMap[styl];
+            if (name === undefined)
+                continue;
+            var key = '.Style_' + name;
+            var css = result[key];
+            if (!css)
+                css = result[key] = {};
+            var hints = byStyle[styl];
+            for (var hint in hints) {
+                if (gli_apply_stylehint(css, parseInt(hint, 10), hints[hint]))
+                    any = true;
+            }
+        }
+    }
+    return any ? result : null;
+}
+
+/* Translate one Glk style hint into the corresponding CSS property on `css`.
+   Colour + weight + reverse only; returns true if it set anything. */
+function gli_apply_stylehint(css, hint, value) {
+    switch (hint) {
+    case Const.stylehint_TextColor:
+        css['color'] = gli_color_to_hex(value);
+        return true;
+    case Const.stylehint_BackColor:
+        css['background-color'] = gli_color_to_hex(value);
+        return true;
+    case Const.stylehint_Weight:
+        css['font-weight'] = (value > 0) ? 'bold' : ((value < 0) ? 'lighter' : 'normal');
+        return true;
+    case Const.stylehint_ReverseColor:
+        css['reverse'] = value ? 1 : 0;
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* A Glk 24-bit colour value (0xRRGGBB) to a CSS "#RRGGBB" string. */
+function gli_color_to_hex(value) {
+    var hex = (value & 0xFFFFFF).toString(16);
+    while (hex.length < 6)
+        hex = '0' + hex;
+    return '#' + hex.toUpperCase();
+}
 function glk_style_distinguish(win, styl1, styl2) {
     return 0;
 }

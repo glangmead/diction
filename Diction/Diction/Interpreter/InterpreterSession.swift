@@ -437,6 +437,13 @@ final class InterpreterSession {
     }
   }
 
+  /// Whether the transcript background is dark, so the bridge lifts the game's
+  /// per-style colours for legibility. Set by the view from the colour scheme;
+  /// flipping it re-lifts the injected colours live.
+  var rendersForDarkBackground = false {
+    didSet { if oldValue != rendersForDarkBackground { host.setDarkBackground(rendersForDarkBackground) } }
+  }
+
   /// Records a window's type and named-style table, and for grids captures the
   /// geometry and resizes its row buffer to match `gridheight`.
   private func updateWindowMeta(_ window: RemGlkUpdate.Window) {

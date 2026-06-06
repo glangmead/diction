@@ -89,6 +89,9 @@ struct GameView: View {
       coordinator.useSharedVoice(voiceWarmer)
       coordinator.useEntitlement(store)
       session.snapshotStore = .default   // per-turn autosave + resume-on-open
+      // Set before load so the first style-hint injection lifts game colours for
+      // the current background (dark vs light); kept in sync in `.onChange` below.
+      session.rendersForDarkBackground = colorScheme == .dark
       // Set the theme BEFORE loading. The host retains it and `handleBridgeLoaded`
       // re-injects it ahead of `glkStart`, so the VM's first render is already
       // themed. Pushing it only after `load()` returns left the opening painted with
@@ -138,7 +141,10 @@ struct GameView: View {
     // the current property-wrapper values fresh on each call.
     .onChange(of: typefaceRaw) { pushTheme() }
     .onChange(of: sizeRaw) { pushTheme() }
-    .onChange(of: colorScheme) { pushTheme() }
+    .onChange(of: colorScheme) {
+      pushTheme()
+      session.rendersForDarkBackground = colorScheme == .dark
+    }
     .onChange(of: dynamicTypeSize) { pushTheme() }
     .onDisappear {
       // Navigating back to the library tears down this view. Release the audio

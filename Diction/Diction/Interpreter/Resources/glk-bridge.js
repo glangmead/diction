@@ -78,6 +78,92 @@ function bytesToB64(arr) {
 // arrange/refresh events advance the generation between turns.
 let lastGen = null
 
+/* --- Per-style colour hints (the colours glkote drops) ---------------------
+ * glkapi emits a per-window `styles` table on arrangement updates; glkote itself
+ * ignores it. We turn it into a `<style id=diction-style-hints>` and inject it
+ * BEFORE glkote paints (in the update wrapper, ahead of realUpdate), so coloured
+ * keyword runs render correctly on first paint — no flash. Game colours get a
+ * legibility lift against the transcript background (ported from Swift RunColor):
+ * symmetric, only adjusting colours that would be illegible. `onDark` is seeded
+ * at glkStart and updated live by Swift on a light/dark toggle. */
+let dictionOnDark = false
+let dictionBufferStyles = {}   // merged buffer-window styles table, kept for re-lift
+
+const DICTION_NAMED_COLORS = {
+  black: '000000', white: 'ffffff', red: 'ff0000', green: '008000', blue: '0000ff',
+  yellow: 'ffff00', cyan: '00ffff', magenta: 'ff00ff', gray: '808080', grey: '808080'
+}
+
+function dictionParseColor(css) {
+  let s = String(css).trim().toLowerCase()
+  if (s[0] === '#') s = s.slice(1)
+  if (DICTION_NAMED_COLORS[s]) s = DICTION_NAMED_COLORS[s]
+  if (s.length === 3) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2]
+  if (!/^[0-9a-f]{6}$/.test(s)) return null
+  return [parseInt(s.slice(0, 2), 16) / 255, parseInt(s.slice(2, 4), 16) / 255, parseInt(s.slice(4, 6), 16) / 255]
+}
+
+// Lift a colour toward white on a dark background / toward black on a light one,
+// to a luma threshold, preserving hue. Colours already legible pass through.
+function dictionLegible(rgb, onDark, threshold) {
+  const luma = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+  if (onDark) {
+    if (luma >= threshold) return rgb
+    const amount = (threshold - luma) / (1 - luma)
+    return [rgb[0] + (1 - rgb[0]) * amount, rgb[1] + (1 - rgb[1]) * amount, rgb[2] + (1 - rgb[2]) * amount]
+  }
+  if (luma <= threshold) return rgb
+  const scale = threshold / luma
+  return [rgb[0] * scale, rgb[1] * scale, rgb[2] * scale]
+}
+
+function dictionHex(rgb) {
+  const byte = c => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')
+  return ('#' + byte(rgb[0]) + byte(rgb[1]) + byte(rgb[2])).toUpperCase()
+}
+
+// Build `.BufferWindow .Style_<name>` rules (colour+weight only) from the merged
+// styles table, lifting each colour for the current background.
+function dictionStyleCss() {
+  const rules = []
+  for (const key of Object.keys(dictionBufferStyles).sort()) {
+    if (key === '.Style_normal') continue
+    const attrs = dictionBufferStyles[key]
+    const decls = []
+    if (attrs.color) {
+      const rgb = dictionParseColor(attrs.color)
+      decls.push('color: ' + (rgb ? dictionHex(dictionLegible(rgb, dictionOnDark, 0.5)) : attrs.color))
+    }
+    if (attrs['background-color']) decls.push('background-color: ' + attrs['background-color'])
+    if (attrs['font-weight']) decls.push('font-weight: ' + attrs['font-weight'])
+    if (decls.length) rules.push('.BufferWindow ' + key + ' { ' + decls.join('; ') + '; }')
+  }
+  return rules.join('\n')
+}
+
+function dictionInjectStyleHints() {
+  let el = document.getElementById('diction-style-hints')
+  if (!el) { el = document.createElement('style'); el.id = 'diction-style-hints'; document.head.appendChild(el) }
+  el.textContent = dictionStyleCss()
+}
+
+// Merge any buffer-window styles tables carried by this update, then (re)inject.
+// Called before glkote paints, so the rules are in the DOM ahead of the spans.
+function dictionApplyStyleHints(data) {
+  if (!data || !data.windows) return
+  let changed = false
+  for (const w of data.windows) {
+    if (w.type === 'buffer' && w.styles) { Object.assign(dictionBufferStyles, w.styles); changed = true }
+  }
+  if (changed) dictionInjectStyleHints()
+}
+
+// Swift calls this on a light/dark toggle: re-lift the cached styles in place.
+window.dictionSetDark = function (dark) {
+  dictionOnDark = !!dark
+  dictionInjectStyleHints()
+}
+
 function installGlkOte() {
   glkote = new window.GlkOteClass()
   const realUpdate = glkote.update.bind(glkote)
@@ -105,6 +191,9 @@ function installGlkOte() {
     // Swift AFTER the move's autosave message — otherwise send() resolves on the
     // update with the previous turn's snapshot still latest, and a restore lands
     // one move stale.
+    // Inject the per-style colour CSS BEFORE glkote paints, so coloured runs
+    // render correctly on first paint instead of flashing in afterward.
+    dictionApplyStyleHints(data)
     realUpdate.apply(glkote, arguments)
     let copy
     try { copy = JSON.parse(JSON.stringify(data)) } catch (e) { return }
@@ -242,7 +331,8 @@ function blorbExec(u8, type) {
 // engine: 'zvm' (Z-machine) or 'quixe' (Glulx). The restore snapshot (if any) is
 // served by Swift at /restore so we can JSON.parse it before prepare() — ZVM's
 // autosave_read is synchronous, so the snapshot must be in hand up front.
-window.glkStart = async function (engine) {
+window.glkStart = async function (engine, onDark) {
+  dictionOnDark = !!onDark
   try {
     const restoreResp = await fetch('glk://app/restore')
     const restoreText = restoreResp.ok ? await restoreResp.text() : ''

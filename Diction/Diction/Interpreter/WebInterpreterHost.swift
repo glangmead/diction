@@ -47,6 +47,11 @@ final class WebInterpreterHost: NSObject {
   /// would only survive until the next load. Re-applied from `handleBridgeLoaded`.
   private var latestThemeCSS: String?
 
+  /// Whether the transcript background is dark. Seeded into the bridge at
+  /// `glkStart` (so per-style colours are lifted on first paint) and pushed live
+  /// on a light/dark toggle via `setDarkBackground`.
+  private var darkBackground = false
+
   override init() {
     super.init()
     let config = WKWebViewConfiguration()
@@ -84,7 +89,8 @@ final class WebInterpreterHost: NSObject {
     }
     // 2) Boot the VM; the first settled update resolves `pending`.
     return try await awaitNextUpdate {
-      self.webView.evaluateJavaScript("window.glkStart('\(engine)'); 0", completionHandler: nil)
+      self.webView.evaluateJavaScript(
+        "window.glkStart('\(engine)', \(self.darkBackground)); 0", completionHandler: nil)
     }
   }
 
@@ -147,15 +153,30 @@ final class WebInterpreterHost: NSObject {
   }
 
   private func injectThemeCSS(_ css: String) {
+    injectCSS(css, id: "diction-theme")
+  }
+
+  /// Tell the bridge whether the transcript background is dark, so it lifts the
+  /// game's per-style colours accordingly. Stored so `glkStart` seeds it on the
+  /// next (re)load; pushed live here for a light/dark toggle mid-game.
+  func setDarkBackground(_ dark: Bool) {
+    darkBackground = dark
+    webView.evaluateJavaScript("window.dictionSetDark && window.dictionSetDark(\(dark)); 0",
+                               completionHandler: nil)
+  }
+
+  /// Create-or-replace a `<style id=…>` in the head from an arbitrary stylesheet.
+  /// The CSS is run through `JSONEncoder` to produce a safely-escaped JS string
+  /// literal — far safer than hand-escaping for an arbitrary stylesheet.
+  private func injectCSS(_ css: String, id: String) {
     guard let data = try? JSONEncoder().encode(css),
           let literal = String(data: data, encoding: .utf8) else { return }
     let script = """
     (function () {
-      var id = 'diction-theme';
-      var el = document.getElementById(id);
+      var el = document.getElementById('\(id)');
       if (!el) {
         el = document.createElement('style');
-        el.id = id;
+        el.id = '\(id)';
         document.head.appendChild(el);
       }
       el.textContent = \(literal);
@@ -216,7 +237,8 @@ extension WebInterpreterHost: WKScriptMessageHandler {
 
   private func handleBridgeLoaded() {
     // The page just (re)loaded, dropping any prior injected style; re-apply the
-    // retained theme so it survives game open / restore.
+    // retained theme so it survives game open / restore. (Per-style colours are
+    // re-seeded by the bridge itself at glkStart, so they need no re-apply here.)
     if let css = latestThemeCSS { injectThemeCSS(css) }
     bootContinuation?.resume()
     bootContinuation = nil
