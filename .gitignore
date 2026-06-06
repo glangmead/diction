@@ -19,6 +19,9 @@ xcuserdata/
 nocommit/
 .superpowers
 
+# local link to the app documents folder when run on Mac
+docs
+
 ## Node deps (only the vendored MIT .wasm subset in Interpreter/Resources is committed;
 ## package.json + package-lock.json pin the emglken version those came from)
 node_modules/

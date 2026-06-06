@@ -3,11 +3,12 @@ import UIKit
 
 // swiftlint:disable file_length
 // The central game screen — toolbar, native status bar, the GlkOte WebView, the
-// line/char input bars, theming, and input dispatch — is one tightly-coupled unit
-// whose state is private to this file, so it sits a hair over the 400-line limit.
-// Splitting it would mean exposing that private view state across files, which is
-// worse than the small overage.
+// line/char input bars, theming, input dispatch, and the voice-readout overlay —
+// is one tightly-coupled unit whose state is private to this file, so it sits a
+// hair over the 400-line / 250-body limits. Splitting it would mean exposing that
+// private view state across files, which is worse than the small overage.
 
+// swiftlint:disable:next type_body_length
 struct GameView: View {
   let storyFile: StoryFile
 
@@ -23,6 +24,7 @@ struct GameView: View {
   @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var session = InterpreterSession()
   @State private var coordinator = VoiceCoordinator()
   @State private var commandText = ""
@@ -56,6 +58,10 @@ struct GameView: View {
       }
     }
     .background(.gameBackground)
+    // The voice readout overlay (help / windows / history / keywords). Reading
+    // `activeReadout` here in `body` lets Observation track it and show/hide the
+    // card as the coordinator sets and clears it.
+    .voiceReadoutOverlay(coordinator.activeReadout, reduceMotion: reduceMotion)
     .navigationTitle(storyFile.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.visible, for: .navigationBar)

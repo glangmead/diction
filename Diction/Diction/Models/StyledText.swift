@@ -57,6 +57,13 @@ extension StyledText {
     ])
   }
 
+  /// App-generated narration (a readout's spoken text) as a single `.normal`
+  /// entry, so `SpeechSynthesizer.speak` can voice a coordinator response that
+  /// isn't game output.
+  static func narration(_ text: String) -> [StyledText] {
+    [StyledText(runs: [Run(text: text, style: .normal)])]
+  }
+
   /// True for entries created via `userInput(_:)`. Used by views that want
   /// to slice the transcript into "command + response" chunks.
   nonisolated var isUserInput: Bool {

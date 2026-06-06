@@ -30,6 +30,9 @@ func glkBridgeLoadsAndPlays() async throws {
   let response = session.lastResponse.map(\.plainText).joined().lowercased()
   #expect(response.contains("leaflet") || response.contains("mailbox"))
 
+  // The line command is recorded for `history` / `input N`.
+  #expect(session.inputHistory == ["open mailbox"])
+
   await session.shutdown()
 }
 

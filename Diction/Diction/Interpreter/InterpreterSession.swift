@@ -91,6 +91,11 @@ final class InterpreterSession {
     secondaryBuffers.values.sorted { ($0.top, $0.id) < ($1.top, $1.id) }
   }
 
+  /// Line commands the player has entered, oldest first. Char keypresses are not
+  /// recorded — only real parser commands — so `history` / `input N` see a clean,
+  /// contiguous list. Persisted in the snapshot so it survives resume.
+  private(set) var inputHistory: [String] = []
+
   /// Vocabulary words from the story file, used to bias speech recognition.
   private(set) var dictionary: Set<String> = []
 
@@ -134,6 +139,11 @@ final class InterpreterSession {
   /// `transcript`; other buffer windows are surfaced as panels so their `clear`
   /// can't wipe the prose — Blue Lacuna's `keywords` screen opens a second one.
   private var primaryBufferID: Int?
+
+  /// The story window's on-screen `top`, so the `windows` readback can place grids
+  /// and panels above or below it. Live-only (not snapshotted): it repopulates on
+  /// the first update after a resume.
+  private(set) var primaryBufferTop = 0
 
   /// Non-primary buffer windows (e.g. Blue Lacuna's bottom "Topics" panel),
   /// keyed by window id and surfaced via `secondaryBufferWindows`.
@@ -242,6 +252,7 @@ final class InterpreterSession {
     inputMode = nil
     let echoIndex = transcript.count
     transcript.append(.userInput(command))
+    inputHistory.append(command)
     let clearsBefore = transcriptClears
     do {
       // The host applies every update via `onUpdate`; it returns once a settled
@@ -312,6 +323,7 @@ final class InterpreterSession {
   func captureSnapshot() -> PresentationSnapshot {
     PresentationSnapshot(
       transcript: transcript,
+      inputHistory: inputHistory,
       lastResponse: lastResponse,
       lastResponseStart: lastResponseStart,
       transcriptClears: transcriptClears,
@@ -330,6 +342,7 @@ final class InterpreterSession {
   /// separately via its own VM autosave; this restores only what the views show.
   func restore(_ snapshot: PresentationSnapshot) {
     transcript = snapshot.transcript
+    inputHistory = snapshot.inputHistory ?? []
     lastResponse = snapshot.lastResponse
     lastResponseStart = snapshot.lastResponseStart
     transcriptClears = snapshot.transcriptClears
@@ -450,7 +463,10 @@ final class InterpreterSession {
   /// become panels. Geometry is in 1×1 cells, so `height` is a line count.
   private func updateBufferMeta(_ window: RemGlkUpdate.Window) {
     if primaryBufferID == nil { primaryBufferID = window.id }
-    guard window.id != primaryBufferID else { return }
+    if window.id == primaryBufferID {
+      if let top = window.top { primaryBufferTop = top }
+      return
+    }
     var snapshot = secondaryBuffers[window.id] ?? BufferWindowSnapshot(id: window.id)
     if let top = window.top { snapshot.top = top }
     if let height = window.height { snapshot.height = height }

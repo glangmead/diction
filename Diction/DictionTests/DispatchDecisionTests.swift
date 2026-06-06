@@ -53,6 +53,22 @@ struct DispatchDecisionTests {
         == .coordinator(.faster)
     )
   }
+
+  @Test("a numbered readback command routes through the wake word")
+  func numberedThroughWake() {
+    #expect(
+      VoiceCoordinator.decide(text: "game window 2", wakeWord: "game", isNarrating: false)
+        == .coordinator(.window(2))
+    )
+  }
+
+  @Test("merged wake word + numbered command is honored")
+  func mergedNumbered() {
+    #expect(
+      VoiceCoordinator.decide(text: "gamewindow2", wakeWord: "game", isNarrating: false)
+        == .coordinator(.window(2))
+    )
+  }
 }
 
 @MainActor

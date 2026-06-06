@@ -8,6 +8,9 @@ import Foundation
 /// before the interpreter has booted and restored its VM.
 struct PresentationSnapshot: Equatable, Sendable, Codable {
   var transcript: [StyledText]
+  /// Optional so snapshots written before input history existed still decode
+  /// (synthesized decoding treats a missing key as nil). Restored as `[]`.
+  var inputHistory: [String]?
   var lastResponse: [StyledText]
   var lastResponseStart: Int
   var transcriptClears: Int

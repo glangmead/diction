@@ -48,3 +48,21 @@ func presentationSnapshotCodableRoundTrips() throws {
 
   #expect(decoded == snapshot)
 }
+
+@MainActor
+@Test("a snapshot written before input history existed still decodes")
+func presentationSnapshotDecodesWithoutInputHistory() throws {
+  let session = InterpreterSession()
+  session.apply(try update(sampleUpdate))
+  let snapshot = session.captureSnapshot()
+
+  // Strip the key a pre-feature build never wrote; decoding must tolerate it.
+  let data = try JSONEncoder().encode(snapshot)
+  var object = try #require(
+    try JSONSerialization.jsonObject(with: data) as? [String: Any])
+  object.removeValue(forKey: "inputHistory")
+  let stripped = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(PresentationSnapshot.self, from: stripped)
+  #expect(decoded.inputHistory == nil)
+}

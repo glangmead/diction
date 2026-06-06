@@ -1,6 +1,19 @@
 import Foundation
 import AVFoundation
 
+// swiftlint:disable file_length
+// Pitch for the exception: this type is the single cohesive owner of the voice
+// lifecycle (two axes + permission handshake), input dispatch/classification,
+// narration, and the readout-overlay state. Those paths mutate the same private
+// state — `synthesizer`, `lastNarratedEntries`, `activeReadout`/`readoutToken` —
+// so moving handlers to an extension in another file would force widening that
+// access, the same trade-off `InterpreterSession` documents and rejects. The
+// per-command readback LOGIC already lives in separate pure helpers
+// (`VoiceCommandCatalog`, `WindowInventory`, `InputHistory`, `KeywordScanner`);
+// what remains here is thin glue. ~30 lines over; prefer the exception over
+// scattering coupled state. The same reasoning covers the `type_body_length`
+// disable on the declaration below.
+
 /// Owns the voice lifecycle and orchestrates the mic, the synthesizer,
 /// and the interpreter session. The View layer interacts with the
 /// coordinator rather than the recognizer / synthesizer directly.
@@ -19,6 +32,7 @@ import AVFoundation
 /// - One-shot opening narration the first time narration is active
 @Observable
 @MainActor
+// swiftlint:disable:next type_body_length
 final class VoiceCoordinator {
   // MARK: - View-observable state
 
@@ -28,6 +42,11 @@ final class VoiceCoordinator {
   /// Off and immutable in the Simulator, where TTS is unavailable (it screeches);
   /// see `SpeechSynthesizer.isAvailable`.
   private(set) var isSpeaking = !SpeechSynthesizer.isSimulator
+
+  /// The readout currently shown in the overlay (the answer to `help`, `windows`,
+  /// `history`, or `keywords`), or nil when none is up. The view reads this in
+  /// `body`; `present(_:)` sets it and auto-dismisses it.
+  private(set) var activeReadout: VoiceReadout?
 
   // MARK: - Owned services
 
@@ -79,6 +98,14 @@ final class VoiceCoordinator {
   /// The entries spoken by the most recent narration pass — game response
   /// or opening. Used by the "reread" coordinator command.
   private var lastNarratedEntries: [StyledText] = []
+
+  /// Bumped on every `present(_:)`; lets a presentation know whether a newer
+  /// readout (or a clear) has superseded it before it auto-dismisses.
+  private var readoutToken = 0
+
+  /// How long the readout overlay lingers when narration can't time the dismissal
+  /// — the Simulator, where TTS is unavailable, so `speak` returns immediately.
+  private static let readoutFallbackLinger: Duration = .seconds(6)
 
   // MARK: - Voice lifecycle (two axes)
 
@@ -143,6 +170,9 @@ final class VoiceCoordinator {
   /// either a coordinator command (when the utterance begins with the
   /// wake word) or to the game's parser.
   func dispatch(text: String, fromVoice: Bool) async {
+    // Any fresh input dismisses a showing readout — a new command supersedes it,
+    // and a game command shouldn't leave a stale overlay floating over the reply.
+    activeReadout = nil
     switch Self.decide(text: text, wakeWord: wakeWord, isNarrating: synthesizer.isSpeaking) {
     case .coordinator(let command): await handleCoordinator(command)
     case .ignore: return
@@ -157,6 +187,12 @@ final class VoiceCoordinator {
     case stop
     case faster
     case slower
+    case help
+    case windows
+    case window(Int)
+    case history
+    case input(Int)
+    case keywords
   }
 
   enum DispatchDecision: Equatable {
@@ -171,7 +207,7 @@ final class VoiceCoordinator {
     let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     let wake = normalizedWakeWord(wakeWord)
     if isAddressed(lower, wakeWord: wake) {
-      if let command = parseCoordinatorCommand(stripWakeWord(from: lower, wakeWord: wake)) {
+      if let command = VoiceCommandCatalog.parse(stripWakeWord(from: lower, wakeWord: wake)) {
         return .coordinator(command)
       }
       return .ignore
@@ -182,7 +218,7 @@ final class VoiceCoordinator {
     // prefix is itself a known command — otherwise a real game word that merely
     // starts with the wake word (e.g. "gamekeeper") must still reach the parser.
     if lower.hasPrefix(wake),
-       let command = parseCoordinatorCommand(String(lower.dropFirst(wake.count))) {
+       let command = VoiceCommandCatalog.parse(String(lower.dropFirst(wake.count))) {
       return .coordinator(command)
     }
     // A bare utterance while narrating is dropped — whether the game wants a
@@ -215,21 +251,6 @@ final class VoiceCoordinator {
     return String(trimmed).trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private static func parseCoordinatorCommand(_ text: String) -> CoordinatorCommand? {
-    switch text {
-    case "reread", "repeat", "again", "say that again", "say again":
-      return .reread
-    case "stop", "pause", "quiet", "shut up", "be quiet":
-      return .stop
-    case "faster", "speed up", "speak faster", "talk faster":
-      return .faster
-    case "slower", "slow down", "speak slower", "talk slower":
-      return .slower
-    default:
-      return nil
-    }
-  }
-
   // MARK: - Coordinator command handlers
 
   private func handleCoordinator(_ command: CoordinatorCommand) async {
@@ -242,7 +263,102 @@ final class VoiceCoordinator {
       adjustSpeechRate(by: 0.05)
     case .slower:
       adjustSpeechRate(by: -0.05)
+    case .help:
+      await present(VoiceCommandCatalog.helpReadout())
+    case .windows:
+      await handleWindows()
+    case .window(let number):
+      await handleWindow(number)
+    case .history:
+      await handleHistory()
+    case .input(let number):
+      await handleInput(number)
+    case .keywords:
+      await handleKeywords()
     }
+  }
+
+  // MARK: - Keywords
+
+  private func handleKeywords() async {
+    guard let session else { return }
+    let words = KeywordScanner.keywords(in: session.lastResponse)
+    guard !words.isEmpty else {
+      await speakNotice("No highlighted words in the last passage.")
+      return
+    }
+    await present(KeywordScanner.readout(words))
+  }
+
+  // MARK: - History
+
+  private func handleHistory() async {
+    guard let session else { return }
+    guard !session.inputHistory.isEmpty else {
+      await speakNotice("No commands yet.")
+      return
+    }
+    await present(InputHistory.readout(session.inputHistory))
+  }
+
+  /// Re-issue a past line command (1 = most recent) as if typed now, so the
+  /// game's response narrates under the usual rules. No overlay.
+  private func handleInput(_ number: Int) async {
+    guard let session else { return }
+    let recents = InputHistory.recent(session.inputHistory)
+    guard number >= 1, number <= recents.count else {
+      await speakNotice("There's no input \(number). Say history for the list.")
+      return
+    }
+    await sendToGame(text: recents[number - 1], fromVoice: false)
+  }
+
+  // MARK: - Windows
+
+  private func handleWindows() async {
+    guard let session else { return }
+    await present(WindowInventory.listReadout(slots: windowSlots(session)))
+  }
+
+  private func handleWindow(_ number: Int) async {
+    guard let session else { return }
+    guard let slot = windowSlots(session).first(where: { $0.number == number }) else {
+      await speakNotice("There's no window \(number). Say windows for the list.")
+      return
+    }
+    await present(WindowInventory.contentReadout(for: slot))
+  }
+
+  private func windowSlots(_ session: InterpreterSession) -> [WindowInventory.Slot] {
+    WindowInventory.slots(
+      storyTop: session.primaryBufferTop,
+      lastResponse: session.lastResponse,
+      statusWindows: session.statusWindows,
+      secondaryBuffers: session.secondaryBufferWindows)
+  }
+
+  /// Narrate a brief coordinator notice with no overlay — e.g. an out-of-range
+  /// `window N` / `input N`. Speaks unconditionally, like the readback commands.
+  private func speakNotice(_ text: String) async {
+    await synthesizer.speak(StyledText.narration(text))
+  }
+
+  /// Show a readout in the overlay and narrate it, then auto-dismiss. Narrates
+  /// unconditionally (independent of the `isSpeaking` axis, like `reread`) — the
+  /// user asked for this by voice. The dismissal is timed by narration on device;
+  /// where TTS is unavailable (Simulator) it lingers briefly instead. A newer
+  /// `present` (or a `dispatch` clear) bumps `readoutToken`, so a stale
+  /// presentation won't wipe the overlay out from under its successor.
+  private func present(_ readout: VoiceReadout) async {
+    readoutToken += 1
+    let token = readoutToken
+    activeReadout = readout
+    if synthesizer.isAvailable {
+      await synthesizer.speak(StyledText.narration(readout.spokenText))
+    } else {
+      try? await Task.sleep(for: Self.readoutFallbackLinger)
+    }
+    if readoutToken == token { activeReadout = nil }
   }
 
   private func rereadLast() async {
