@@ -27,6 +27,14 @@ import WebKit
 ///   3. The session is single-use; create a new one for a different game. Each
 ///      session owns its own webview + WASM instance, so interpreter globals
 ///      never carry across games.
+/// The interpreter's input cursor inside a grid window — glkapi's `xpos`/`ypos`
+/// (column/row) plus the window it's in. Drives the status-bar caret.
+nonisolated struct GridInputCursor: Sendable, Equatable {
+  var window: Int
+  var col: Int
+  var row: Int
+}
+
 @Observable
 @MainActor
 // swiftlint:disable:next type_body_length
@@ -60,6 +68,12 @@ final class InterpreterSession {
   /// Convenience derived from `inputMode` so existing view code that
   /// only cares about "is input wanted?" keeps working.
   var isAwaitingInput: Bool { inputMode != nil }
+
+  /// Cursor position when the interpreter is blocked on input *inside a grid
+  /// window* — e.g. Bureaucracy's form, which reads each field at a moving cursor.
+  /// nil when input is in a buffer window (the normal case) or none is pending.
+  /// Drives the caret `StatusWindowView` draws so the player sees where typing lands.
+  private(set) var gridInputCursor: GridInputCursor?
 
   /// Current grid (status) windows — e.g. AMFV's mode / location / time / date
   /// bar — ordered by their on-screen `top` (then id), so any number of them
@@ -361,17 +375,27 @@ final class InterpreterSession {
     if update.exit == true {
       currentGen = update.gen ?? currentGen
       inputMode = nil
+      gridInputCursor = nil
     } else if let input = update.input {
       if let inputReq = input.first(where: { $0.type == .line || $0.type == .char }) {
         currentGen = inputReq.gen ?? (update.gen ?? currentGen)
         currentWindow = inputReq.id
         inputMode = inputReq.type
+        // glkapi reports the cursor coords only for grid-window input; a buffer
+        // input has none, so the caret stays hidden where it belongs.
+        if windowTypes[inputReq.id] == .grid, let cursorX = inputReq.xpos, let cursorY = inputReq.ypos {
+          gridInputCursor = GridInputCursor(window: inputReq.id, col: cursorX, row: cursorY)
+        } else {
+          gridInputCursor = nil
+        }
       } else {
         currentGen = update.gen ?? currentGen
         inputMode = nil
+        gridInputCursor = nil
       }
     } else {
       currentGen = update.gen ?? currentGen
+      // Input array absent (arrange/redraw frame): keep the input state, cursor included.
     }
   }
 

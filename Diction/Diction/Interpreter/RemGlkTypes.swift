@@ -169,6 +169,12 @@ nonisolated struct RemGlkUpdate: Codable, Sendable {
     var maxlen: Int?
     var gen: Int?
     var initial: String?
+    /// Cursor column/row for input in a GRID window (glkapi.js:696-730 sets these
+    /// from `win.cursorx`/`win.cursory` for both char and line input). Nil for
+    /// buffer-window input. Used to draw a blinking cursor over the native status
+    /// bar so the player can see where a form (e.g. Bureaucracy) is taking input.
+    var xpos: Int?
+    var ypos: Int?
   }
 
   enum InputType: String, Codable, Sendable {

@@ -303,6 +303,12 @@ final class VoiceCoordinator {
     }
   }
 
+  /// Named special keys glkapi maps to keycodes (`return` → keycode_Return), passed
+  /// through intact so the typed char path doesn't truncate "return" to "r".
+  private static let specialKeys: Set<String> = [
+    "return", "escape", "tab", "delete", "up", "down", "left", "right", "pageup", "pagedown", "home", "end"
+  ]
+
   private func preparePayload(
     text: String,
     mode: RemGlkUpdate.InputType,
@@ -312,9 +318,10 @@ final class VoiceCoordinator {
     case .line:
       return text.trimmingCharacters(in: .whitespacesAndNewlines)
     case .char:
-      return fromVoice
-        ? Self.characterFromUtterance(text)
-        : String(text.first ?? " ")
+      if fromVoice { return Self.characterFromUtterance(text) }
+      let lower = text.lowercased()
+      if Self.specialKeys.contains(lower) { return lower }
+      return String(text.first ?? " ")
     }
   }
 

@@ -1,6 +1,13 @@
 import SwiftUI
 import UIKit
 
+// swiftlint:disable file_length
+// The central game screen — toolbar, native status bar, the GlkOte WebView, the
+// line/char input bars, theming, and input dispatch — is one tightly-coupled unit
+// whose state is private to this file, so it sits a hair over the 400-line limit.
+// Splitting it would mean exposing that private view state across files, which is
+// worse than the small overage.
+
 struct GameView: View {
   let storyFile: StoryFile
 
@@ -112,6 +119,12 @@ struct GameView: View {
       // fires only on a real mic-off — the per-utterance clear is handled above.)
       if !listening { commandText = "" }
     }
+    // A char-driven form (Bureaucracy) drops the input bar's focus between every
+    // key; re-focus while its cursor is live so the keyboard stays up for continuous
+    // typing + Return. Grid input only — buffer prompts stay voice-first.
+    .onChange(of: session.gridInputCursor) { _, cursor in
+      if cursor != nil { inputFocused = true }
+    }
     // Re-theme the WebView when any input to the stylesheet changes. Each `of:`
     // value is read here in `body`, so Observation/SwiftUI registers the
     // dependency and fires `pushTheme()` on a real change — rather than relying on
@@ -197,7 +210,7 @@ struct GameView: View {
     if !session.statusWindows.isEmpty {
       VStack(spacing: 0) {
         ForEach(session.statusWindows) { window in
-          StatusWindowView(window: window)
+          StatusWindowView(window: window, inputCursor: gridCursor(for: window.id))
         }
       }
     }
@@ -277,9 +290,9 @@ struct GameView: View {
   }
 
   /// Shown when the interpreter is blocked on a single-keypress input
-  /// (`glk_request_char_event`). The text field auto-submits on every
-  /// keystroke so the user doesn't have to hit return; the "Continue"
-  /// button covers the common "press SPACE to begin" case.
+  /// (`glk_request_char_event`). The field auto-submits each keystroke; "Continue"
+  /// covers "press SPACE to begin"; Return sends a Return keypress so char-driven
+  /// forms (Bureaucracy) can advance to the next field.
   private var charInputBar: some View {
     HStack(spacing: 8) {
       Text("Key:")
@@ -291,6 +304,7 @@ struct GameView: View {
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .focused($inputFocused)
+        .submitLabel(.return)
         .accessibilityLabel("Press a single key")
         .accessibilityValue(narrationPausedText ?? (charInputText.isEmpty ? Self.charInputHint : charInputText))
         .onChange(of: charInputText) { _, new in
@@ -299,6 +313,7 @@ struct GameView: View {
           charInputText = ""
           dispatchTyped(key)
         }
+        .onSubmit { dispatchTyped("return") }
       Button("Continue") {
         dispatchTyped(" ")
       }
@@ -360,7 +375,7 @@ struct GameView: View {
   }
 }
 
-// MARK: - Reset / start-over
+// MARK: - Reset / start-over + small view helpers
 
 extension GameView {
   var resetButton: some View {
@@ -371,6 +386,12 @@ extension GameView {
     }
     .accessibilityLabel("Start over")
     .accessibilityHint("Erases saved progress and restarts this game from the beginning.")
+  }
+
+  /// The grid input caret (column, row) for `windowID`, or nil when input isn't there.
+  func gridCursor(for windowID: Int) -> (col: Int, row: Int)? {
+    guard let cursor = session.gridInputCursor, cursor.window == windowID else { return nil }
+    return (cursor.col, cursor.row)
   }
 
   /// Delete the resume snapshot and reload from scratch on a fresh session.
