@@ -22,6 +22,9 @@ struct LibraryView: View {
   /// Set once the user has seen the first-launch About screen; suppresses the
   /// auto-present on every later launch.
   @AppStorage("hasSeenAbout") private var hasSeenAbout = false
+  /// Settings preference (on by default) for the toned-down upgrade prompt under
+  /// the game list.
+  @AppStorage("showLibraryUpgradeButton") private var showLibraryUpgradeButton = true
   @State private var searchText = ""
 
   /// The library filtered by the search field — every visible field is searched.
@@ -48,9 +51,14 @@ struct LibraryView: View {
             }
         }
         // The promo isn't a game, so it stays out of search results.
-        if searchText.isEmpty && store.entitlementResolved && !store.isFullVersion {
+        if showLibraryUpgradeButton && searchText.isEmpty
+            && store.entitlementResolved && !store.isFullVersion {
           Section {
+            // Clear the inset-grouped cell fill + separators so it reads as a
+            // plain line of text, not a white card/button.
             LibraryUnlockRow { showingPaywall = true }
+              .listRowBackground(Color.clear)
+              .listRowSeparator(.hidden)
           }
         }
       }

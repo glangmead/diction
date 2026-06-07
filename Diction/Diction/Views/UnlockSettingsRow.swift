@@ -6,6 +6,7 @@ import StoreKit
 /// owned. Owns the paywall sheet it presents.
 struct UnlockSettingsRow: View {
   @Environment(StoreManager.self) private var store
+  @AppStorage("showLibraryUpgradeButton") private var showLibraryUpgradeButton = true
   @State private var showingPaywall = false
 
   var body: some View {
@@ -38,6 +39,8 @@ struct UnlockSettingsRow: View {
         .sheet(isPresented: $showingPaywall) {
           PaywallView()
         }
+
+        Toggle("Show upgrade button in Library", isOn: $showLibraryUpgradeButton)
       }
     } footer: {
       Text(

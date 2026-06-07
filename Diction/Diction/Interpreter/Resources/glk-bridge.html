@@ -10,11 +10,28 @@
      layout." We must size #gameport, or GlkOte measures a 0-height port and
      renders a sliver (the cream .WindowFrame stripe). Fill the WebView. */
   html, body { height: 100%; margin: 0; padding: 0; }
+  /* The log is display-only — Diction owns input via the native bar. Make the
+     content non-selectable so a tap has nothing to focus/select and the web view
+     never grabs first-responder (which would dismiss the keyboard out from under
+     the input field). Links stay tappable and double-tap-to-insert still resolves
+     the word via caretRangeFromPoint, neither of which needs text selection. */
+  html, body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   #gameport { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
   /* Diction owns text input natively (the SwiftUI input bar), so suppress
      GlkOte's in-page <input> fields (classes Input/LineInput/CharInput,
      glkote.js:1516-1522) — they must never be the entry point here. */
   .Input, .LineInput, .CharInput { display: none !important; }
+  /* The native input bar already shows the prompt + caret, so the game's dangling
+     line-input prompt line ('>') in the log is a redundant second insertion point.
+     Hide it only while the window is awaiting LINE input (GlkOte marks the frame
+     .HasInputField and the field .LineInput, glkote.js:1503/1518); single-key
+     prompts keep their .CharInput and stay visible. The line reappears as the
+     '>command' echo the instant input ends (HasInputField drops), so command
+     history is intact. `:not(:has(~ .BufferLine))` picks the last buffer line
+     robustly — a trailing MorePrompt/PreviousMark sibling can't defeat it. */
+  .WindowFrame.HasInputField:has(.LineInput) .BufferLine:not(:has(~ .BufferLine)) {
+    display: none;
+  }
   /* The status (grid) windows are rendered natively over the WebView by SwiftUI
      (StatusWindowView — fit-to-width, grows with the reading size). GlkOte still
      lays them out, but we minimise + hide them: a tiny font gives a huge column

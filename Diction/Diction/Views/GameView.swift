@@ -50,6 +50,10 @@ struct GameView: View {
   /// so changing it re-runs the load against a freshly created session.
   @State private var reloadToken = 0
   @FocusState private var inputFocused: Bool
+  /// Set just before we resign focus on purpose (the keyboard's Hide button), so
+  /// the focus-reclaim below can tell an intentional dismiss from the WebView
+  /// stealing first-responder on a log tap.
+  @State private var programmaticBlur = false
 
   /// The game surface and its presentation chrome (overlay, toolbar, sheets,
   /// dialog), split from `body` so the full modifier chain stays within the Swift
@@ -184,6 +188,20 @@ struct GameView: View {
     .onChange(of: session.wordTapToken) {
       guard session.inputMode == .line else { return }
       commandText = CommandWordComposer.append(session.lastTappedWord, to: commandText)
+    }
+    // Tapping the display-only log makes the WebView first-responder, dismissing
+    // the keyboard. When that blur wasn't our own (the Hide-keyboard button) and
+    // line input is still active, reclaim focus so the keyboard stays up. A tap
+    // while the keyboard is down causes no blur, so it stays down — exactly the
+    // asymmetry we want. The reclaim sets focus true, which can't re-enter this
+    // (it guards on a true→false transition).
+    .onChange(of: inputFocused) { wasFocused, focused in
+      guard wasFocused, !focused else { return }
+      if programmaticBlur {
+        programmaticBlur = false
+      } else if session.inputMode == .line {
+        inputFocused = true
+      }
     }
     .onDisappear {
       // Navigating back to the library tears down this view. Release the audio
@@ -350,10 +368,32 @@ struct GameView: View {
         .submitLabel(.send)
         .accessibilityLabel("Enter command")
         .accessibilityValue(narrationPausedText ?? commandText)
+        // VoiceOver / Voice Control equivalent of the swipe-down dismiss below.
+        .accessibilityAction(named: "Hide keyboard") { dismissKeyboard() }
     }
     .padding(.horizontal)
     .padding(.vertical, 8)
     .background(.gameSurface)
+    // Swipe the input bar down to close the keyboard without submitting. The log
+    // scrolls internally, so there's no outer scrollview for the system's
+    // swipe-to-dismiss; this gesture on the native bar provides it. The minimum
+    // distance leaves taps and typing alone; `programmaticBlur` marks it
+    // intentional so the focus-reclaim doesn't immediately re-open it.
+    .simultaneousGesture(
+      DragGesture(minimumDistance: 20)
+        .onEnded { value in
+          if value.translation.height > 40,
+             value.translation.height > abs(value.translation.width) {
+            dismissKeyboard()
+          }
+        }
+    )
+  }
+
+  /// Close the keyboard without submitting; `commandText` is preserved.
+  private func dismissKeyboard() {
+    programmaticBlur = true
+    inputFocused = false
   }
 
   /// Shown when the interpreter is blocked on a single-keypress input
