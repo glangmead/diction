@@ -18,6 +18,8 @@ struct AboutPane: View {
         }
         .padding(.vertical, 6)
       }
+      // Open-source credits live under the help text rather than in the Settings tab.
+      AcknowledgementsSection()
     }
   }
 }
@@ -63,17 +65,38 @@ enum AboutContent {
     case bullet(AttributedString)
   }
 
-  // Source markdown for the About pane. Placeholder for now; grow it like a README.
+  // Source markdown for the About pane. Long bullet/paragraph lines stay unwrapped so
+  // the rendered text matches the source 1:1 — a bullet can't be wrapped without
+  // splitting it into two — so the line-length rule is suppressed here rather than
+  // breaking the prose.
+  // swiftlint:disable line_length
   private static let markdown: String = """
 # Welcome to Diction
+
+Play interactive fiction games with your voice, while the device reads the game to you!
+
+Try Find to see a list of classic games that are a click away.
+
+## Tips
+
+* The mic is automatically listening and can tell when you're done talking.
+* Mute the mic or speaker in the top toolbar if you only want some of the voice features.
+* You can use Apple's voices, or an experimental CoreML family of voices.
+* To add to the Apple voices you have to first visit your device's Settings > Accessibility > Read & Speak > Voices > English > Voice.
+
 """
+  // swiftlint:enable line_length
 
   /// Pre-parsed list of renderable blocks. Pure compute; safe to evaluate once.
   static let blocks: [Block] = parse(markdown: markdown)
 
+  /// CommonMark unordered-list markers: a line is a bullet when it starts with one of
+  /// these followed by a space (so `*emphasis*` stays a paragraph).
+  private static let bulletMarkers: Set<Character> = ["-", "*", "+"]
+
   /// Minimal CommonMark subset: H1 (`# `), H2 (`## `), blank lines split paragraphs,
-  /// `- ` bullet items, inline link syntax `[text](url)`, and bare http(s) URLs are
-  /// auto-linked.
+  /// `-`/`*`/`+` bullet items, inline link syntax `[text](url)`, and bare http(s)
+  /// URLs are auto-linked.
   static func parse(markdown source: String) -> [Block] {
     var result: [Block] = []
     var paragraph: [String] = []
@@ -112,7 +135,7 @@ enum AboutContent {
         result.append(.heading1(String(line.dropFirst(2))))
         continue
       }
-      if line.hasPrefix("- ") {
+      if let marker = line.first, bulletMarkers.contains(marker), line.dropFirst().hasPrefix(" ") {
         flushParagraph()
         result.append(.bullet(renderInline(String(line.dropFirst(2)))))
         continue

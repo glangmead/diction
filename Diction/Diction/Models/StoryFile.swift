@@ -7,6 +7,10 @@ nonisolated struct StoryFile: Identifiable, Hashable, Sendable {
   var format: StoryFormat
   var source: Source
   var lastPlayed: Date?
+  /// Extracted/looked-up presentation metadata (cover, official title, version, …),
+  /// or nil for games added before this existed and for the bundled game. Identity
+  /// (`==`/`hash`) ignores it — it's presentation, not identity.
+  var metadata: StoryMetadata?
 
   /// File extensions the app can play — the single source of truth shared by
   /// the import picker's filter (`LibraryView`) and library discovery

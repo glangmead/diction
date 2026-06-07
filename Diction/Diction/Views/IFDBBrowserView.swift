@@ -221,12 +221,20 @@ struct IFDBBrowserView: View {
     Task {
       defer { downloading.remove(result.tuid) }
       do {
-        let download = try await client.resolveDownload(tuid: result.tuid)
-        let tempURL = try await client.downloadGame(download, title: result.title)
+        // The full record supplies the download link, the official title, and the
+        // cover/metadata we persist alongside the file.
+        let detail = try await client.gameDetail(tuid: result.tuid)
+        guard let download = detail.playableDownload else { throw IFDBError.noDownloadURL }
+        let title = detail.title ?? result.title
+        let cover = await client.downloadCoverImage(from: detail.coverArtURL)
+        let tempURL = try await client.downloadGame(download, title: title)
         // The network request succeeded — show the checkmark now, before the
         // dedup prompt (per design, fetch success is what the checkmark reports).
         downloaded.insert(result.tuid)
-        ingest(tempURL: tempURL, displayTitle: result.title)
+        ingest(
+          tempURL: tempURL, displayTitle: title,
+          supplemental: detail.storyMetadata, coverImage: cover
+        )
       } catch {
         downloadError = "\(result.title): \(error.localizedDescription)"
         showingDownloadError = true
@@ -234,34 +242,53 @@ struct IFDBBrowserView: View {
     }
   }
 
+}
+
+// MARK: - Library ingest & dedup
+
+extension IFDBBrowserView {
   /// Add the freshly downloaded temp file to the library, prompting first if it's
   /// byte-identical to a game already present.
-  private func ingest(tempURL: URL, displayTitle: String) {
+  fileprivate func ingest(
+    tempURL: URL, displayTitle: String,
+    supplemental: StoryMetadata? = nil, coverImage: Data? = nil
+  ) {
     if let existing = fileManager.contentDuplicate(of: tempURL) {
       pendingAdd = PendingStoryAdd(
         sourceURL: tempURL,
         preferredName: nil,
         existingTitle: existing.title,
-        displayTitle: displayTitle
+        displayTitle: displayTitle,
+        supplemental: supplemental,
+        coverImage: coverImage
       )
     } else {
-      save(tempURL: tempURL, preferredName: nil)
+      save(tempURL: tempURL, preferredName: nil, supplemental: supplemental, coverImage: coverImage)
     }
   }
 
-  private func commitPendingAdd(_ pending: PendingStoryAdd) {
-    save(tempURL: pending.sourceURL, preferredName: pending.preferredName)
+  fileprivate func commitPendingAdd(_ pending: PendingStoryAdd) {
+    save(
+      tempURL: pending.sourceURL, preferredName: pending.preferredName,
+      supplemental: pending.supplemental, coverImage: pending.coverImage
+    )
     pendingAdd = nil
   }
 
-  private func cancelPendingAdd() {
+  fileprivate func cancelPendingAdd() {
     if let pending = pendingAdd { removeTempDirectory(of: pending.sourceURL) }
     pendingAdd = nil
   }
 
-  private func save(tempURL: URL, preferredName: String?) {
+  private func save(
+    tempURL: URL, preferredName: String?,
+    supplemental: StoryMetadata? = nil, coverImage: Data? = nil
+  ) {
     do {
-      _ = try fileManager.addStory(from: tempURL, preferredName: preferredName)
+      _ = try fileManager.addStory(
+        from: tempURL, preferredName: preferredName,
+        supplemental: supplemental, coverImage: coverImage
+      )
     } catch {
       downloadError = error.localizedDescription
       showingDownloadError = true

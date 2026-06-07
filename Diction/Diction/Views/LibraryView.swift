@@ -240,50 +240,7 @@ struct LibraryView: View {
   }
 
   private func storyRow(_ story: StoryFile, locked: Bool) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack {
-        Text(story.title)
-          .font(.headline)
-        Spacer(minLength: 8)
-        if locked {
-          Image(systemName: "lock.fill")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .accessibilityHidden(true)
-        }
-      }
-      HStack(spacing: 8) {
-        Text(story.format == .zMachine ? "Z-machine" : "Glulx")
-          .font(.caption)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
-          .background(
-            Capsule()
-              .fill(story.format == .zMachine ? .blue : .purple)
-              .opacity(0.2)
-          )
-        Text(story.source.label)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      LibraryStatusPreview(url: story.url, lastPlayed: story.lastPlayed)
-    }
-    .padding(.vertical, 4)
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(accessibilityDescription(for: story, locked: locked))
-  }
-
-  private func accessibilityDescription(for story: StoryFile, locked: Bool) -> String {
-    var parts: [String] = [story.title]
-    parts.append(story.format == .zMachine ? "Z-machine" : "Glulx")
-    parts.append(story.source.label)
-    if story.lastPlayed != nil {
-      parts.append("recently played")
-    }
-    if locked {
-      parts.append("locked, double tap to unlock")
-    }
-    return parts.joined(separator: ", ")
+    StoryRowView(story: story, locked: locked, coverURL: fileManager.coverURL(for: story))
   }
 }
 

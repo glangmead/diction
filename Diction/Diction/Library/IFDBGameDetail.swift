@@ -112,6 +112,18 @@ nonisolated struct IFDBGameDetail: Sendable, Codable {
     }
     return (runnable.first { $0.isGame } ?? runnable.first)?.download
   }
+
+  /// Catalog metadata to persist alongside a downloaded game. IFDB has no short
+  /// headline field, so `genre` stands in as the one-line descriptor; the file's
+  /// own version label is filled in separately at ingest.
+  var storyMetadata: StoryMetadata {
+    StoryMetadata(
+      title: title,
+      author: author,
+      year: firstPublished.map { String($0.prefix(4)) },
+      headline: genre
+    )
+  }
 }
 
 /// Upgrades an `http` URL to `https`, leaving other schemes untouched. The

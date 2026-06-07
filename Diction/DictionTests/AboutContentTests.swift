@@ -18,6 +18,35 @@ struct AboutContentTests {
     #expect(blocks.first == .heading2("Section"))
   }
 
+  @Test("'-', '*', and '+' all start bullet items")
+  func bulletMarkers() {
+    for marker in ["-", "*", "+"] {
+      let blocks = AboutContent.parse(markdown: "\(marker) one\n\(marker) two")
+      #expect(blocks.count == 2)
+      #expect(blocks.allSatisfy { block in
+        if case .bullet = block { return true }
+        return false
+      })
+    }
+  }
+
+  @Test("a bullet strips its marker and the following space")
+  func bulletContent() {
+    guard case .bullet(let attributed)? = AboutContent.parse(markdown: "* hello").first else {
+      Issue.record("expected a bullet block")
+      return
+    }
+    #expect(String(attributed.characters) == "hello")
+  }
+
+  @Test("an asterisk used for emphasis is not treated as a bullet")
+  func emphasisNotBullet() {
+    guard case .paragraph? = AboutContent.parse(markdown: "*emphasis* here").first else {
+      Issue.record("expected a paragraph block, not a bullet")
+      return
+    }
+  }
+
   @Test("a bare http(s) URL is rewritten as a markdown link")
   func autolinkBareURL() {
     let out = AboutContent.autolinkBareURLs(in: "see https://example.com now")

@@ -9,9 +9,28 @@ final class StoryFileManager {
 
   private let documentsURL: URL
   private let lastPlayedKey = "lastPlayed"
+  private let metadataStore = StoryMetadataStore()
 
-  private static let bundledGames: [(name: String, ext: String, title: String)] = [
-    ("devours", "z5", "All Things Devours")
+  /// A game shipped inside the app bundle, with its static catalog metadata. The
+  /// version label is read from the file at load time and merged in; IFDB has no
+  /// cover art for these, so they render with the title-initial placeholder.
+  nonisolated struct BundledGame {
+    let name: String
+    let ext: String
+    let metadata: StoryMetadata
+  }
+
+  nonisolated static let bundledGames: [BundledGame] = [
+    BundledGame(
+      name: "devours",
+      ext: "z5",
+      metadata: StoryMetadata(
+        title: "All Things Devours",
+        author: "half sick of shadows",
+        year: "2004",
+        headline: "Time Travel"
+      )
+    )
   ]
 
   init() {
@@ -54,24 +73,44 @@ final class StoryFileManager {
     return stories.first { Self.sha256(ofFileAt: $0.url) == incoming }
   }
 
-  /// Copy the file at `url` into Documents under a unique name and return the
-  /// resulting `StoryFile`. `preferredName` (e.g. an IFDB title) overrides the
-  /// source filename; a name collision in Documents is resolved with a macOS-style
-  /// ` (2)` suffix. No content check here — callers decide whether to prompt first.
+  /// Copy the file at `url` into Documents under a unique name, extract + persist its
+  /// metadata, and return the resulting `StoryFile`. `preferredName` (e.g. an IFDB
+  /// title) overrides the source filename; a name collision is resolved with a
+  /// macOS-style ` (2)` suffix. `supplemental`/`coverImage` (e.g. from IFDB) overlay
+  /// the file-derived metadata — catalog fields win, but the file keeps the version
+  /// label and supplies the cover only when no `coverImage` is given. No content
+  /// check here — callers decide whether to prompt first.
   @discardableResult
-  func addStory(from url: URL, preferredName: String?) throws -> StoryFile {
+  func addStory(
+    from url: URL,
+    preferredName: String?,
+    supplemental: StoryMetadata? = nil,
+    coverImage: Data? = nil
+  ) throws -> StoryFile {
     let base = preferredName ?? url.lastPathComponent
     let name = Self.uniqueFilename(base: base, existing: existingDocumentFilenames())
     let dest = documentsURL.appendingPathComponent(name)
     try FileManager.default.copyItem(at: url, to: dest)
+
+    let (fileMeta, fileCover) = StoryMetadataExtractor.fileMetadata(forFileAt: dest)
+    metadataStore.setMetadata(
+      fileMeta.merging(supplemental), coverImage: coverImage ?? fileCover, for: name
+    )
+
     refresh()
     return stories.first { $0.url == dest } ?? StoryFile(
       url: dest,
       title: dest.deletingPathExtension().lastPathComponent,
       format: (try? FormatDetector.detect(url: dest)) ?? .zMachine,
       source: .imported,
-      lastPlayed: nil
+      lastPlayed: nil,
+      metadata: metadataStore.metadata(for: name)
     )
+  }
+
+  /// Cached cover-image URL for a story, if one was extracted/persisted.
+  func coverURL(for story: StoryFile) -> URL? {
+    story.metadata.flatMap { metadataStore.coverURL(for: $0) }
   }
 
   private func existingDocumentFilenames() -> Set<String> {
@@ -90,6 +129,7 @@ final class StoryFileManager {
     var dates = lastPlayedMap()
     dates[story.url.lastPathComponent] = nil
     saveLastPlayedMap(dates)
+    metadataStore.remove(for: story.url.lastPathComponent)
     refresh()
   }
 
@@ -97,17 +137,20 @@ final class StoryFileManager {
 
   private func bundledStories() -> [StoryFile] {
     let dates = lastPlayedMap()
-    return Self.bundledGames.compactMap { name, ext, title in
+    return Self.bundledGames.compactMap { game in
       guard let url = Bundle.main.url(
-        forResource: name, withExtension: ext
+        forResource: game.name, withExtension: game.ext
       ) else { return nil }
       let format = (try? FormatDetector.detect(url: url)) ?? .zMachine
+      // Version comes from the file; the static record supplies title/author/year/headline.
+      let (fileMeta, _) = StoryMetadataExtractor.fileMetadata(forFileAt: url)
       return StoryFile(
         url: url,
-        title: title,
+        title: game.metadata.title ?? game.name,
         format: format,
         source: .bundled,
-        lastPlayed: dates["\(name).\(ext)"]
+        lastPlayed: dates["\(game.name).\(game.ext)"],
+        metadata: fileMeta.merging(game.metadata)
       )
     }
   }
@@ -130,7 +173,8 @@ final class StoryFileManager {
         title: url.deletingPathExtension().lastPathComponent,
         format: format,
         source: .imported,
-        lastPlayed: dates[url.lastPathComponent]
+        lastPlayed: dates[url.lastPathComponent],
+        metadata: metadataStore.metadata(for: url.lastPathComponent)
       )
     }
   }

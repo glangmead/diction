@@ -248,10 +248,14 @@ struct IFDBGameDetailView: View {
     Task {
       defer { isDownloading = false }
       do {
+        let cover = await client.downloadCoverImage(from: detail.coverArtURL)
         let tempURL = try await client.downloadGame(download, title: title)
         // Fetch succeeded — show the checkmark now, ahead of any dedup prompt.
         didDownload = true
-        ingest(tempURL: tempURL, displayTitle: title)
+        ingest(
+          tempURL: tempURL, displayTitle: title,
+          supplemental: detail.storyMetadata, coverImage: cover
+        )
       } catch {
         downloadError = error.localizedDescription
         showingDownloadError = true
@@ -266,21 +270,29 @@ struct IFDBGameDetailView: View {
 extension IFDBGameDetailView {
   /// Add the freshly downloaded temp file to the library, prompting first if it's
   /// byte-identical to a game already present.
-  fileprivate func ingest(tempURL: URL, displayTitle: String) {
+  fileprivate func ingest(
+    tempURL: URL, displayTitle: String,
+    supplemental: StoryMetadata? = nil, coverImage: Data? = nil
+  ) {
     if let existing = fileManager.contentDuplicate(of: tempURL) {
       pendingAdd = PendingStoryAdd(
         sourceURL: tempURL,
         preferredName: nil,
         existingTitle: existing.title,
-        displayTitle: displayTitle
+        displayTitle: displayTitle,
+        supplemental: supplemental,
+        coverImage: coverImage
       )
     } else {
-      save(tempURL: tempURL, preferredName: nil)
+      save(tempURL: tempURL, preferredName: nil, supplemental: supplemental, coverImage: coverImage)
     }
   }
 
   fileprivate func commitPendingAdd(_ pending: PendingStoryAdd) {
-    save(tempURL: pending.sourceURL, preferredName: pending.preferredName)
+    save(
+      tempURL: pending.sourceURL, preferredName: pending.preferredName,
+      supplemental: pending.supplemental, coverImage: pending.coverImage
+    )
     pendingAdd = nil
   }
 
@@ -289,9 +301,15 @@ extension IFDBGameDetailView {
     pendingAdd = nil
   }
 
-  private func save(tempURL: URL, preferredName: String?) {
+  private func save(
+    tempURL: URL, preferredName: String?,
+    supplemental: StoryMetadata? = nil, coverImage: Data? = nil
+  ) {
     do {
-      _ = try fileManager.addStory(from: tempURL, preferredName: preferredName)
+      _ = try fileManager.addStory(
+        from: tempURL, preferredName: preferredName,
+        supplemental: supplemental, coverImage: coverImage
+      )
     } catch {
       downloadError = error.localizedDescription
       showingDownloadError = true

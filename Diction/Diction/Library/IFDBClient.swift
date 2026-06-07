@@ -109,15 +109,15 @@ actor IFDBClient {
     return try JSONDecoder().decode(IFDBGameDetail.self, from: data)
   }
 
-  /// Resolves a directly-downloadable Z-machine/Glulx story file for a given
-  /// IFDB TUID. Throws `IFDBError.noDownloadURL` when the game offers no
-  /// runnable, uncompressed story file (e.g. TADS/Hugo games, or zip-only
-  /// listings).
-  func resolveDownload(tuid: String) async throws -> IFDBDownload {
-    guard let download = try await gameDetail(tuid: tuid).playableDownload else {
-      throw IFDBError.noDownloadURL
-    }
-    return download
+  /// Best-effort cover-image fetch for persisting a downloaded game's art. Returns
+  /// nil on any failure (no URL, network error, non-2xx) — the cover is optional.
+  func downloadCoverImage(from url: URL?) async -> Data? {
+    guard let url,
+      let (data, response) = try? await session.data(from: url),
+      let http = response as? HTTPURLResponse,
+      (200..<300).contains(http.statusCode)
+    else { return nil }
+    return data
   }
 
   /// Downloads a resolved story file into a fresh temporary directory, naming it

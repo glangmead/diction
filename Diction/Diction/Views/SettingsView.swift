@@ -58,7 +58,6 @@ struct SettingsView: View {
       accessibilityVoicesSection
       readingTextSection
       diagnosticsSection
-      AcknowledgementsSection()
     }
   }
 

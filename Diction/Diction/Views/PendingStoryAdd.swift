@@ -14,4 +14,9 @@ struct PendingStoryAdd: Identifiable {
   let existingTitle: String
   /// Title of the incoming game (for the dialog message).
   let displayTitle: String
+  /// Catalog metadata (e.g. from IFDB) to overlay on the file-derived metadata when
+  /// the copy is committed. Nil for plain file adds.
+  var supplemental: StoryMetadata?
+  /// Cover image bytes (e.g. fetched from IFDB) to cache when the copy is committed.
+  var coverImage: Data?
 }
