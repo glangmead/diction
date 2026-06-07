@@ -44,6 +44,15 @@ struct GlkThemeCSSTests {
     #expect(css.contains("#gameport"))
   }
 
+  @Test("The echoed command (Style_input) is themed to the text colour, not glkote's #300000")
+  func echoedInputThemed() {
+    // glkote.css hardcodes `.Style_input { color: #300000 }` — near-black, invisible
+    // on a dark background. We override it to the resolved text colour so the echoed
+    // command stays legible in dark mode (glkote's bold weight is left intact).
+    let css = sampleCSS()
+    #expect(css.contains(".BufferWindow .Style_input"))
+  }
+
   @Test("Buffer lines break long unbroken tokens so they can't overflow the column")
   func bufferLinesBreakLongWords() {
     // glkote.css forbids the horizontal scrollbar and only wraps at spaces, so

@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "tts": {
     "pronunciations": [
-      { "word": "copied", "ipa": "kˈɑpid" }
+      { "word": "copied", "ipa": "kˈɑpid" },
+      { "word": "key", "say": "key," }
     ],
     "textRules": [
       { "id": "zork-casing", "where": "before-g2p", "match": "\\bZORK\\b", "action": "replace", "with": "Zork" },

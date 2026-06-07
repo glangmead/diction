@@ -37,6 +37,13 @@ enum GlkThemeCSS {
       font-size: \(size)px;
       color: \(textHex);
     }
+    /* The echoed command run. glkote.css hardcodes `.Style_input { color: #300000 }`
+       (near-black) — invisible on a dark background — so override it to the resolved
+       text colour. The `.BufferWindow` prefix outscopes glkote's bare `.Style_input`;
+       its `font-weight: bold` is left intact, so the echo stays distinct. */
+    .BufferWindow .Style_input {
+      color: \(textHex);
+    }
     .BufferWindow {
       background-color: \(backgroundHex);
     }
