@@ -144,6 +144,16 @@ final class SpeechSynthesizer: NSObject {
   /// second cold load. Call before any narration.
   func useSharedEngine(_ engine: KokoroSpeechEngine) {
     kokoro = engine
+    kokoro.ttsInterventions = ttsInterventions
+  }
+
+  /// Resolved TTS interventions from the speech profile; forwarded to the Kokoro
+  /// engine (and re-applied if the engine is later swapped via `useSharedEngine`).
+  private var ttsInterventions: TTSInterventions = .empty
+
+  func applyTTSInterventions(_ tts: TTSInterventions) {
+    ttsInterventions = tts
+    kokoro.ttsInterventions = tts
   }
 
   // MARK: - Kokoro pass

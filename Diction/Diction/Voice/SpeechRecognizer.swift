@@ -21,13 +21,17 @@ final class SpeechRecognizer {
 
   private(set) var errorMessage: String?
 
-  /// Called when a complete utterance is detected. Set before `startContinuous`.
-  var onUtterance: ((String) -> Void)?
+  /// Called when a complete utterance is detected, carrying per-word alternatives
+  /// for post-recognition recovery. Set before `startContinuous`.
+  var onUtterance: ((RecognizedUtterance) -> Void)?
 
   private let recognizer: SFSpeechRecognizer?
   private var audioEngine: AVAudioEngine?
   private var request: SFSpeechAudioBufferRecognitionRequest?
   private var task: SFSpeechRecognitionTask?
+  /// The most recent best transcription, kept so a finalized cycle can deliver its
+  /// segments' alternatives (the lever for acronym recovery), not just a string.
+  private var latestTranscription: SFTranscription?
 
   private var inContinuous = false
   private var contextualStringsProvider: (@MainActor () -> [String])?
@@ -198,6 +202,7 @@ final class SpeechRecognizer {
     error: Error?
   ) {
     if let result {
+      latestTranscription = result.bestTranscription
       let new = result.bestTranscription.formattedString
       if new != transcription {
         transcription = new
@@ -239,15 +244,17 @@ final class SpeechRecognizer {
   private func endCycle(emitFinal: Bool) {
     silenceTask?.cancel()
     let final = transcription
+    let utterance = latestTranscription.map(Self.utterance(from:)) ?? .plain(final)
     audioEngine?.inputNode.removeTap(onBus: 0)
     request?.endAudio()
     task?.finish()
     request = nil
     task = nil
+    latestTranscription = nil
 
     if emitFinal,
-       !final.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      onUtterance?(final)
+       !utterance.best.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      onUtterance?(utterance)
     }
 
     guard inContinuous else {
@@ -283,5 +290,15 @@ final class SpeechRecognizer {
         }
       }
     }
+  }
+
+  /// Build a `RecognizedUtterance` from a transcription's segments, carrying each
+  /// word's `alternativeSubstrings` for post-recognition recovery.
+  private static func utterance(from transcription: SFTranscription) -> RecognizedUtterance {
+    RecognizedUtterance(words: transcription.segments.map { segment in
+      RecognizedUtterance.Word(
+        best: segment.substring,
+        alternatives: [segment.substring] + segment.alternativeSubstrings)
+    })
   }
 }

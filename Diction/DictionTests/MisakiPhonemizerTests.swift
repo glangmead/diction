@@ -23,11 +23,14 @@ func decimalsAreSpoken() {
   #expect(priced.contains("fˈIv") && priced.contains("fˈɪfti"), "$5.50 → \(priced)")
 }
 
+// The dash → pause transform moved out of vendored EnglishG2P into our
+// PausePolicy post-pass (see PausePolicyTests for the unit), so this exercises it
+// through the full KokoroPhonemizer path where it now lives.
 @Test("Standalone dash becomes a triple-semicolon pause; mid-compound dash is stripped")
-@MainActor
-func dashesHandled() {
-  #expect(misakiResourcesReady())
-  let out = EnglishG2P(british: false, fallback: { _ in ("", 1) }).phonemize(text: "hey -- over here, my to-do list").0
+func dashesHandled() async throws {
+  let root = Bundle.main.url(forResource: "KokoroModels", withExtension: "bundle")!
+  let phonemizer = try #require(await KokoroPhonemizer.load(bundleRoot: root))
+  let out = try await phonemizer.phonemize("hey -- over here, my to-do list", british: false)
   #expect(!out.contains("—"), "raw em-dash present: \(out)")
   #expect(!out.contains("  "), "double space present: \(out)")
   #expect(out.contains("hˈA;;;"), "standalone dash not turned into ;;;: \(out)")

@@ -6,6 +6,7 @@ struct DictionApp: App {
   @State private var fileManager = StoryFileManager()
   @State private var voiceWarmer = VoiceWarmer()
   @State private var store = StoreManager()
+  @State private var speechProfiles = SpeechProfileStore()
   @State private var importError: String?
 
   var body: some Scene {
@@ -13,6 +14,7 @@ struct DictionApp: App {
       LibraryView(fileManager: fileManager)
         .environment(voiceWarmer)
         .environment(store)
+        .environment(speechProfiles)
         .onOpenURL(perform: handleOpen)
         .alert(
           "Couldn't import file",

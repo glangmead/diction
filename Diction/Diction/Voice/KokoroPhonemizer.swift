@@ -10,6 +10,13 @@ import FluidAudio
 struct KokoroPhonemizer: Sendable {
   private let oov: StyleTTS2Phonemizer  // empty lexicon ⇒ pure neural G2P
 
+  /// The resolved TTS interventions (pronunciations, textRules, pausePolicy) from
+  /// the speech profile. `.empty` until the engine sets it; the pause transform
+  /// that used to live in vendored `EnglishG2P` now rides `pausePolicy` here
+  /// (default reproduces it byte-for-byte), and the ZORK hardcode is now the
+  /// bundled `zork-casing` textRule.
+  var tts: TTSInterventions = .empty
+
   /// Points the vendored loader at the bundled dictionaries and returns a
   /// phonemizer, or nil if the dictionaries are missing.
   static func load(bundleRoot: URL) async -> KokoroPhonemizer? {
@@ -23,7 +30,9 @@ struct KokoroPhonemizer: Sendable {
 
   /// Text → KokoroAne IPA. `british` selects the GB dictionaries.
   func phonemize(_ text: String, british: Bool) async throws -> String {
-    let text = Self.applySpecialCasing(text)
+    // Pre-G2P interventions: textRules (incl. zork-casing) then pronunciation
+    // rewrites (ipa → in-band `[word](/ipa/)`, say → respelling).
+    let text = tts.preprocessText(text)
 
     // Pass 1: run misaki to discover words the lexicon missed.
     let collector = OOVCollector()
@@ -47,9 +56,12 @@ struct KokoroPhonemizer: Sendable {
         .replacingOccurrences(of: "ʔ", with: "t")
     }
 
-    // Pass 2: final phonemization, fallback served from the cache.
-    return EnglishG2P(british: british, fallback: { token in (cache[token.text] ?? "", 1) })
+    // Pass 2: final phonemization, fallback served from the cache. The pause
+    // policy (em-dash → pause tokens, etc.) is applied here, post-G2P, rather than
+    // inside vendored EnglishG2P.
+    let phonemes = EnglishG2P(british: british, fallback: { token in (cache[token.text] ?? "", 1) })
       .phonemize(text: text).0
+    return (tts.pausePolicy ?? .default).apply(toPhonemes: phonemes)
   }
 
   /// `Mc` + an uppercase consonant other than C/K/Q is a Scottish/Irish surname
@@ -69,13 +81,6 @@ struct KokoroPhonemizer: Sendable {
     return String(word.dropFirst(2))
   }
 
-  /// All-caps words the G2P would otherwise spell out letter-by-letter
-  /// (Z·O·R·K) but which are real titles. Whole-word and case-sensitive, so
-  /// "ZORK" → "Zork" while "Zork", "zork", and "ZORKMID" are left alone. Add more
-  /// `.replacing(_:with:)` lines here as other titles turn up.
-  static func applySpecialCasing(_ text: String) -> String {
-    text.replacing(#/\bZORK\b/#, with: "Zork")
-  }
 }
 
 /// Thread-safe collector for misaki's synchronous discovery pass.

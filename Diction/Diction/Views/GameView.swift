@@ -14,6 +14,7 @@ struct GameView: View {
 
   @Environment(VoiceWarmer.self) private var voiceWarmer
   @Environment(StoreManager.self) private var store
+  @Environment(SpeechProfileStore.self) private var speechProfiles
   // Reading look for the GlkOte WebView, mirrored from the shared reading-settings
   // keys. These drive `pushTheme()`, which regenerates and re-injects the
   // stylesheet whenever any of them changes.
@@ -88,6 +89,7 @@ struct GameView: View {
       coordinator.attach(session: session)
       coordinator.useSharedVoice(voiceWarmer)
       coordinator.useEntitlement(store)
+      coordinator.useSpeechProfile(speechProfiles.profile)
       session.snapshotStore = .default   // per-turn autosave + resume-on-open
       // Set before load so the first style-hint injection lifts game colours for
       // the current background (dark vs light); kept in sync in `.onChange` below.

@@ -84,6 +84,13 @@ final class KokoroSpeechEngine: NSObject {
   /// path's context-free per-word G2P. Nil → fall back to the built-in G2P.
   private var phonemizer: KokoroPhonemizer?
 
+  /// Resolved TTS interventions from the speech profile, pushed onto the phonemizer
+  /// (here on change, and in `loadModel` once it exists). Set by the synthesizer
+  /// when a profile resolves.
+  var ttsInterventions: TTSInterventions = .empty {
+    didSet { phonemizer?.tts = ttsInterventions }
+  }
+
   /// The in-flight model load, so concurrent callers (warm-up + the opening
   /// narration) await the *same* preparation instead of the narration bailing to
   /// the fallback voice because the model is still loading.
@@ -141,6 +148,7 @@ final class KokoroSpeechEngine: NSObject {
       // Built after the manager so G2PModel (the phonemizer's OOV fallback) is
       // loaded. Best-effort: nil leaves the built-in per-word G2P in place.
       phonemizer = await KokoroPhonemizer.load(bundleRoot: root)
+      phonemizer?.tts = ttsInterventions
       state = .ready
     } catch {
       // Simulator (no ANE), missing model, or G2P seed failure → caller falls

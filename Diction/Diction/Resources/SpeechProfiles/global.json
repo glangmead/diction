@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "tts": {
+    "pronunciations": [
+      { "word": "copied", "ipa": "kˈɑpid" },
+      { "word": "PRSO", "say": "parser object" }
+    ],
+    "textRules": [
+      { "id": "zork-casing", "where": "before-g2p", "match": "\\bZORK\\b", "action": "replace", "with": "Zork" },
+      { "id": "digit-runs-as-digits", "where": "before-g2p", "match": "(?<![\\d,])\\d{4,}(?![\\d,])", "action": "spaceDigits" }
+    ],
+    "pausePolicy": { "comma": 1, "semicolon": 1, "colon": 1, "dash": 3 }
+  },
+  "asr": {
+    "vocabulary": ["PEOF", "PRSO", "PRSI", "XYZZY"],
+    "alternativesRecovery": true,
+    "corrections": [
+      { "from": "POF", "to": "PEOF", "mode": "wholeWord" }
+    ]
+  }
+}

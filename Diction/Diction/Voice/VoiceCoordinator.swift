@@ -86,6 +86,27 @@ final class VoiceCoordinator {
     synthesizer.isFullVersion = { [weak store] in store?.isFullVersion ?? false }
   }
 
+  /// The resolved speech profile (global). The TTS slice is forwarded to the
+  /// synthesizer; the ASR slice is read here (contextual biasing, post-recognition
+  /// recovery/corrections).
+  private(set) var speechProfile = SpeechProfile.empty
+
+  func useSpeechProfile(_ profile: SpeechProfile) {
+    speechProfile = profile
+    synthesizer.applyTTSInterventions(profile.tts)
+  }
+
+  /// Recover + correct a recognized utterance against the parser dictionary ∪
+  /// profile vocabulary, per the ASR interventions. The recovery swaps a word the
+  /// parser doesn't know (Apple's "POF") for an alternative it does ("PEOF"); the
+  /// corrections force the rest. Voice path only — typed input bypasses this.
+  private func postProcess(_ utterance: RecognizedUtterance) -> String {
+    var known = Set(speechProfile.asr.vocabulary.map { $0.lowercased() })
+    if let session { known.formUnion(session.dictionary.map { $0.lowercased() }) }
+    return RecognitionPostProcessor(interventions: speechProfile.asr)
+      .process(utterance, knownWords: known)
+  }
+
   // MARK: - Internal state
 
   private var voiceAuthChecked = false
@@ -130,7 +151,7 @@ final class VoiceCoordinator {
       isListening = true
       recognizer.onUtterance = { [weak self] utterance in
         guard let self else { return }
-        let trimmed = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = postProcess(utterance).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         Task { await self.dispatch(text: trimmed, fromVoice: true) }
       }
@@ -496,6 +517,11 @@ final class VoiceCoordinator {
     var ordered: [String] = []
     let wake = wakeWord
     if seen.insert(wake).inserted { ordered.append(wake) }
+    // Profile vocabulary (game acronyms like PEOF) leads the canonical terms — the
+    // recognizer weights earliest entries most.
+    for word in speechProfile.asr.vocabulary where seen.insert(word.lowercased()).inserted {
+      ordered.append(word)
+    }
     for word in IFCanonicalTerms.all where seen.insert(word.lowercased()).inserted {
       ordered.append(word)
     }
