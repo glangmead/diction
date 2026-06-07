@@ -51,7 +51,11 @@ struct GameView: View {
   @State private var reloadToken = 0
   @FocusState private var inputFocused: Bool
 
-  var body: some View {
+  /// The game surface and its presentation chrome (overlay, toolbar, sheets,
+  /// dialog), split from `body` so the full modifier chain stays within the Swift
+  /// type-checker's time budget — this view's body is large and tightly coupled by
+  /// design (see the file header).
+  private var gameContent: some View {
     VStack(spacing: 0) {
       statusBar
       transcriptView
@@ -97,6 +101,10 @@ struct GameView: View {
     } message: {
       Text("This erases your saved progress in \(storyFile.title) and restarts from the beginning.")
     }
+  }
+
+  var body: some View {
+    gameContent
     .task(id: reloadToken) {
       coordinator.attach(session: session)
       coordinator.useSharedVoice(voiceWarmer)
@@ -167,6 +175,15 @@ struct GameView: View {
     // `startOnAppear` does that initial sync.
     .onChange(of: voiceInput) { _, enabled in
       Task { await coordinator.setListening(enabled) }
+    }
+    // Double-tap a word in the story log to append it to the command (read at
+    // fire-time from the session). Line-input only — a single-key prompt has no
+    // command line to build. The token (not the word) is the trigger so tapping
+    // the same word twice appends it twice. No focus change: the keyboard stays
+    // down so you can chain taps with the log fully visible.
+    .onChange(of: session.wordTapToken) {
+      guard session.inputMode == .line else { return }
+      commandText = CommandWordComposer.append(session.lastTappedWord, to: commandText)
     }
     .onDisappear {
       // Navigating back to the library tears down this view. Release the audio

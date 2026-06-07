@@ -422,4 +422,40 @@ window.glkSendEvent = function (json) {
 
 window.onerror = (msg, src, line, col, err) => post('error', String((err && err.stack) || msg))
 window.addEventListener('unhandledrejection', (ev) => post('error', String((ev.reason && ev.reason.stack) || ev.reason)))
+
+// Double-tap a word in the story buffer to send it to Swift, which appends it to
+// the command field (the iOS Frotz typing shortcut). Delegated on document so it
+// covers GlkOte's dynamically-created `.BufferWindow`s; the page reloads fresh per
+// game, so this re-registers cleanly. Hyperlinks are skipped so the game's keyword
+// links still follow on tap. The viewport is `user-scalable=no`, so `dblclick`
+// doesn't collide with double-tap zoom.
+function wordAround(text, i) {
+  if (!text) return ''
+  const isWord = (c) => /[\p{L}\p{N}'’-]/u.test(c)
+  const n = text.length
+  if (i > n) i = n
+  // A tap can land just past the word's last character; step back one then.
+  if (i >= n || !isWord(text[i])) i = i - 1
+  if (i < 0 || !isWord(text[i])) return ''
+  let start = i, end = i + 1
+  while (start > 0 && isWord(text[start - 1])) start--
+  while (end < n && isWord(text[end])) end++
+  return text.slice(start, end)
+}
+
+document.addEventListener('dblclick', (e) => {
+  if (!e.target || !e.target.closest || !e.target.closest('.BufferWindow')) return
+  if (e.target.closest('a')) return            // let game keyword/hyperlinks behave
+  const range = document.caretRangeFromPoint &&
+                document.caretRangeFromPoint(e.clientX, e.clientY)
+  const node = range && range.startContainer
+  if (!node || node.nodeType !== Node.TEXT_NODE) return
+  const word = wordAround(node.textContent, range.startOffset)
+  if (!word) return
+  post('wordtap', word)
+  e.preventDefault()
+  const sel = window.getSelection()
+  if (sel) sel.removeAllRanges()
+})
+
 post('bridge_loaded')

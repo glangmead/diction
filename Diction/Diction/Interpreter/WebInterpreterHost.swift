@@ -36,6 +36,11 @@ final class WebInterpreterHost: NSObject {
   /// emits mid-turn before the game re-requests input.
   var onUpdate: ((RemGlkUpdate) -> Void)?
 
+  /// Invoked when the user double-taps a word in the story buffer (posted by the
+  /// bridge's `wordtap` stage). The session republishes it; the view appends it
+  /// to the command field.
+  var onWordTapped: ((String) -> Void)?
+
   /// Backs the game's manual SAVE slot. Seeded into the bridge at `start` and
   /// updated whenever the bridge mirrors a SAVE. Injected so tests isolate; the
   /// default is rooted in Documents.
@@ -217,8 +222,15 @@ extension WebInterpreterHost: WKScriptMessageHandler {
     case "savewrite": handleSaveWrite(payload)
     case "savedelete": saveStore.delete(gameID: gameID)
     case "update": handleUpdate(payload)
+    case "wordtap": handleWordTap(payload)
     default: break
     }
+  }
+
+  /// A word double-tapped in the buffer, forwarded to the session.
+  private func handleWordTap(_ payload: Any?) {
+    guard let word = payload as? String else { return }
+    onWordTapped?(word)
   }
 
   /// The bridge mirrors the game's SAVE bytes (base64) here; persist them to the

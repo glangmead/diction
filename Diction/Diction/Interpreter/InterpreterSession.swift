@@ -109,6 +109,12 @@ final class InterpreterSession {
   /// command records, and data resources on disk.
   private(set) var gameID: String = ""
 
+  /// The most recent word double-tapped in the story buffer, with a token bumped
+  /// on each tap so the view's `.onChange` fires even when the same word is tapped
+  /// twice in a row. The view appends it to the command field.
+  private(set) var lastTappedWord = ""
+  private(set) var wordTapToken = 0
+
   /// One interpreter instance per session (per game open). GameView creates a
   /// fresh InterpreterSession for each game, so each gets a fresh webview +
   /// interpreter — globals never carry across games.
@@ -193,6 +199,7 @@ final class InterpreterSession {
     // real GlkOte emits mid-turn — so window / input / narration state never
     // drifts. The async start/send below complete only on a *settled* update.
     host.onUpdate = { [weak self] update in self?.apply(update) }
+    host.onWordTapped = { [weak self] word in self?.recordWordTap(word) }
     signature = Self.signature(for: storyData)
     // Resume from the store unless an explicit snapshot was passed (tests).
     let stored = explicitRestore == nil ? snapshotStore?.read(gameID: gameID, signature: signature) : nil
@@ -224,6 +231,13 @@ final class InterpreterSession {
 
   /// Persist the current resume snapshot (engine autosave + presentation) after a
   /// settled turn. No-op without a store or before the first autosave exists.
+  /// Record a word double-tapped in the buffer. The token bump makes the view's
+  /// `.onChange` fire even when the same word is tapped twice in a row.
+  private func recordWordTap(_ word: String) {
+    lastTappedWord = word
+    wordTapToken += 1
+  }
+
   private func persistSnapshot() {
     guard let snapshotStore, !signature.isEmpty, let engine = engineSnapshot,
           let presentation = try? JSONEncoder().encode(captureSnapshot()) else { return }

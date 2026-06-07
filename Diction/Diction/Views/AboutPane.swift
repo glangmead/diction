@@ -95,6 +95,7 @@ Say or type "game" followed by these commands to issue commands to Diction itsel
 
 ## Tips
 
+* Double-tap a word in the game log to add it to your input.
 * To add to the Apple voices you have to first visit your device's Settings > Accessibility > Read & Speak > Voices > English > Voice.
 * Tap the speaker icon in the top toolbar to silence the narration. Turn it back on at any time.
 * _(Full version)_ The mic is automatically listening and can tell when you're done talking.
