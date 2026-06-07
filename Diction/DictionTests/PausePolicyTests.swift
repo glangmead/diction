@@ -33,4 +33,12 @@ struct PausePolicyTests {
     let policy = PausePolicy(comma: 2, semicolon: 1, colon: 1, dash: 3)
     #expect(policy.apply(toPhonemes: "a, b") == "a,; b")
   }
+
+  @Test("count 0 drops the pause entirely — the only sub-comma option the model has")
+  func commaZeroDrops() {
+    let policy = PausePolicy(comma: 0, semicolon: 1, colon: 1, dash: 3)
+    #expect(policy.apply(toPhonemes: "hˈɛlO, wˈɜld") == "hˈɛlO wˈɜld")
+    // adjacent words stay separated (no accidental merge)
+    #expect(policy.apply(toPhonemes: "a,b") == "a b")
+  }
 }

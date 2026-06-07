@@ -4,7 +4,10 @@ import Foundation
 /// model makes pauses from `;`/`,` tokens, not inserted silence). `apply(toPhonemes:)`
 /// is added in the pausePolicy phase. `.default` reproduces today's narration: a
 /// dash becomes `;;; `, and comma/semicolon/colon stay as the single model-native
-/// token (count 1 = unchanged). Decode-tolerant: omitted fields fall to the default.
+/// token (count 1 = unchanged). `0` drops the punctuation entirely (no pause) — the
+/// scale is discrete because the comma is the model's pause floor; there is no
+/// fractional token between "no pause" and "one comma". Decode-tolerant: omitted
+/// fields fall to the default.
 nonisolated struct PausePolicy: Sendable, Equatable, Codable {
   var comma: Int
   var semicolon: Int
@@ -35,8 +38,13 @@ nonisolated struct PausePolicy: Sendable, Equatable, Codable {
     return result.trimmingCharacters(in: .whitespaces)
   }
 
-  /// Append `count - 1` pause tokens after each occurrence of `punctuation`.
+  /// Set the pause at each `punctuation`: `0` drops it (a space keeps adjacent words
+  /// apart — no pause, the model's only sub-comma option); `1` leaves the single
+  /// model-native token; `N > 1` appends `N - 1` extra `;` tokens to lengthen it.
   private func expanding(_ string: String, punctuation: String, count: Int) -> String {
+    if count <= 0 {
+      return string.replacingOccurrences(of: punctuation, with: " ")
+    }
     guard count > 1 else { return string }
     return string.replacingOccurrences(
       of: punctuation, with: punctuation + String(repeating: ";", count: count - 1))
