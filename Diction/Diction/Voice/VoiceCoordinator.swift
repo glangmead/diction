@@ -36,8 +36,10 @@ import AVFoundation
 final class VoiceCoordinator {
   // MARK: - View-observable state
 
-  /// Input axis — is the app listening to the user.
-  private(set) var isListening = true
+  /// Input axis — is the app listening to the user. Off until an owner with
+  /// "Play with my voice" on opens a game (or taps the mic): voice input is a
+  /// paid feature, so it never auto-starts for a free user.
+  private(set) var isListening = false
   /// Output axis — does the app speak. Toggling off stops the current sentence.
   /// Off and immutable in the Simulator, where TTS is unavailable (it screeches);
   /// see `SpeechSynthesizer.isAvailable`.
@@ -79,11 +81,16 @@ final class VoiceCoordinator {
     synthesizer.useSharedEngine(warmer.engine)
   }
 
-  /// Feed the synthesizer the live full-version entitlement so demo never
-  /// narrates with a paid voice. Weak so the coordinator doesn't retain the
-  /// app-level store.
+  /// The live full-version entitlement. Gates auto-listen here (voice input is
+  /// owner-only) and is forwarded to the synthesizer so a free/refunded user
+  /// never narrates with a paid neural voice.
+  private var isFullVersion: @MainActor () -> Bool = { false }
+
+  /// Wire the app-level store's entitlement in. Weak so the coordinator doesn't
+  /// retain the store.
   func useEntitlement(_ store: StoreManager) {
-    synthesizer.isFullVersion = { [weak store] in store?.isFullVersion ?? false }
+    isFullVersion = { [weak store] in store?.isFullVersion ?? false }
+    synthesizer.isFullVersion = isFullVersion
   }
 
   /// The resolved speech profile (global). The TTS slice is forwarded to the
@@ -135,12 +142,20 @@ final class VoiceCoordinator {
 
   // MARK: - Voice lifecycle (two axes)
 
-  /// Called once when the game view appears; applies the default-on axes.
+  /// Called once when the game view appears. Narration (the accessibility voice)
+  /// is free and on by default, so the opening is read regardless of the mic.
+  /// Listening auto-starts only for an owner who turned "Play with my voice" on;
+  /// `setListening` won't fire its own `onChange` on open, so this is the initial
+  /// sync.
   func startOnAppear() async {
     // Warm the neural model early so the opening narration doesn't pay the
-    // ~2-3s cold start.
+    // ~2-3s cold start. Self-gates on `usesNeuralVoice`, so it's a no-op when
+    // neural is locked or off.
     synthesizer.warmUpKokoro()
-    await setListening(true)
+    narrateOpeningIfNeeded()
+    if isFullVersion() && UserDefaults.standard.bool(forKey: "voiceInput") {
+      await setListening(true)
+    }
   }
 
   func setListening(_ enabled: Bool) async {

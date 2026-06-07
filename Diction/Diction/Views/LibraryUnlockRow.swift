@@ -15,7 +15,7 @@ struct LibraryUnlockRow: View {
           Text(price).foregroundStyle(.secondary)
         }
       } label: {
-        Text("Unlock all features: play any game, listen with any voice")
+        Text("Unlock voice features: premium narration and play-by-voice")
           .foregroundStyle(.primary)
       }
       .contentShape(Rectangle())

@@ -20,6 +20,10 @@ struct GameView: View {
   // stylesheet whenever any of them changes.
   @AppStorage("readingTypeface") private var typefaceRaw = ReadingTypeface.sansSerif.rawValue
   @AppStorage("readingTextSize") private var sizeRaw = ReadingTextSize.medium.rawValue
+  /// "Play with my voice" — the persisted mic preference, the single source of
+  /// truth for whether the mic is hot. The in-game mic button and the Settings
+  /// toggle both write this key; `.onChange` below drives the recognizer from it.
+  @AppStorage("voiceInput") private var voiceInput = false
   // 17 pt body scaled by the device's Dynamic Type setting; the semantic size
   // step multiplies on top, matching the old native renderer.
   @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17
@@ -36,6 +40,8 @@ struct GameView: View {
   @State private var isLoading = true
   @State private var loadError: String?
   @State private var showingSettings = false
+  /// Presented when a free user taps the locked mic.
+  @State private var showingPaywall = false
   /// Settings always opens to its Settings segment from in-game; the About segment
   /// is reachable via the picker once open.
   @State private var settingsTab: SettingsTab = .settings
@@ -79,6 +85,9 @@ struct GameView: View {
     }
     .sheet(isPresented: $showingSettings) {
       SettingsView(selectedTab: $settingsTab)
+    }
+    .sheet(isPresented: $showingPaywall) {
+      PaywallView()
     }
     .confirmationDialog(
       "Start over?", isPresented: $showingResetConfirm, titleVisibility: .visible
@@ -151,6 +160,14 @@ struct GameView: View {
       session.rendersForDarkBackground = colorScheme == .dark
     }
     .onChange(of: dynamicTypeSize) { pushTheme() }
+    // The single driver of the recognizer from the persisted preference: the
+    // in-game mic button and the Settings toggle both write `voiceInput`, and
+    // this turns the recognizer on/off to match. `setListening` doesn't write
+    // back, so there's no feedback loop. Won't fire on first appear (no change);
+    // `startOnAppear` does that initial sync.
+    .onChange(of: voiceInput) { _, enabled in
+      Task { await coordinator.setListening(enabled) }
+    }
     .onDisappear {
       // Navigating back to the library tears down this view. Release the audio
       // engine and cleanly stop the interpreter before the session is gone, so
@@ -172,15 +189,31 @@ struct GameView: View {
     .accessibilityLabel("Settings")
   }
 
+  /// Voice input is a paid feature. Unlocked: a live toggle that flips
+  /// `voiceInput` (mirrored by the Settings toggle), with the recognizer driven
+  /// from it in `.onChange` below. Locked: a disabled-looking mic that opens the
+  /// paywall on tap.
+  @ViewBuilder
   private var micToggle: some View {
-    Button {
-      Task { await coordinator.setListening(!coordinator.isListening) }
-    } label: {
-      Image(systemName: coordinator.isListening ? "mic.fill" : "mic.slash")
-        .foregroundStyle(coordinator.isListening ? .blue : .gray)
+    if store.isFullVersion {
+      Button {
+        voiceInput.toggle()
+      } label: {
+        Image(systemName: coordinator.isListening ? "mic.fill" : "mic.slash")
+          .foregroundStyle(coordinator.isListening ? .blue : .gray)
+      }
+      .accessibilityLabel(coordinator.isListening ? "Stop listening" : "Start listening")
+      .accessibilityHint("Whether the app listens to your voice for commands.")
+    } else {
+      Button {
+        showingPaywall = true
+      } label: {
+        Image(systemName: "mic.slash")
+          .foregroundStyle(.gray)
+      }
+      .accessibilityLabel("Voice input locked")
+      .accessibilityHint("Opens the in-app purchase to play by speaking your commands.")
     }
-    .accessibilityLabel(coordinator.isListening ? "Stop listening" : "Start listening")
-    .accessibilityHint("Whether the app listens to your voice for commands.")
   }
 
   private var speakerToggle: some View {

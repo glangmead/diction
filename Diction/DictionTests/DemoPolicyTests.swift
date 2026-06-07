@@ -1,50 +1,26 @@
 import Testing
-import Foundation
 @testable import Diction
 
+/// The free-vs-unlocked rules now gate the two voice features only; games and
+/// system-voice narration are free. See `DemoPolicy`.
 struct DemoPolicyTests {
-  private func story(_ source: StoryFile.Source) -> StoryFile {
-    StoryFile(
-      url: URL(filePath: "/tmp/x.z5"),
-      title: "X",
-      format: .zMachine,
-      source: source,
-      lastPlayed: nil
-    )
+  @Test("Neural voice is locked in demo, unlocked when full")
+  func neuralVoiceGate() {
+    #expect(!DemoPolicy.neuralVoiceUnlocked(fullVersion: false))
+    #expect(DemoPolicy.neuralVoiceUnlocked(fullVersion: true))
   }
 
-  @Test("Demo plays only bundled games")
-  func playabilityDemo() {
-    #expect(DemoPolicy.isPlayable(story(.bundled), fullVersion: false))
-    #expect(!DemoPolicy.isPlayable(story(.imported), fullVersion: false))
-    #expect(!DemoPolicy.isPlayable(story(.downloaded), fullVersion: false))
+  @Test("Voice input is locked in demo, unlocked when full")
+  func voiceInputGate() {
+    #expect(!DemoPolicy.voiceInputUnlocked(fullVersion: false))
+    #expect(DemoPolicy.voiceInputUnlocked(fullVersion: true))
   }
 
-  @Test("Full plays every source")
-  func playabilityFull() {
-    for source in [StoryFile.Source.bundled, .imported, .downloaded] {
-      #expect(DemoPolicy.isPlayable(story(source), fullVersion: true))
-    }
-  }
-
-  @Test("The four free Kokoro voices are unlocked in demo")
-  func freeVoices() {
-    for id in ["af_heart", "am_michael", "bf_emma", "bm_george"] {
-      #expect(DemoPolicy.isKokoroVoiceUnlocked(id, fullVersion: false))
-    }
-  }
-
-  @Test("Other Kokoro voices are locked in demo, unlocked when full")
-  func lockedVoices() {
-    #expect(!DemoPolicy.isKokoroVoiceUnlocked("am_onyx", fullVersion: false))
-    #expect(!DemoPolicy.isKokoroVoiceUnlocked("bf_alice", fullVersion: false))
-    #expect(DemoPolicy.isKokoroVoiceUnlocked("am_onyx", fullVersion: true))
-  }
-
-  @Test("Effective voice falls back to a free default when locked in demo")
-  func effectiveVoice() {
-    #expect(DemoPolicy.effectiveKokoroVoice("am_onyx", fullVersion: false) == "af_heart")
-    #expect(DemoPolicy.effectiveKokoroVoice("bf_emma", fullVersion: false) == "bf_emma")
-    #expect(DemoPolicy.effectiveKokoroVoice("am_onyx", fullVersion: true) == "am_onyx")
+  @Test("Neural narration runs only when the setting is on AND unlocked")
+  func usesNeuralVoiceTruthTable() {
+    #expect(!DemoPolicy.usesNeuralVoice(setting: false, fullVersion: false))
+    #expect(!DemoPolicy.usesNeuralVoice(setting: true, fullVersion: false))
+    #expect(!DemoPolicy.usesNeuralVoice(setting: false, fullVersion: true))
+    #expect(DemoPolicy.usesNeuralVoice(setting: true, fullVersion: true))
   }
 }

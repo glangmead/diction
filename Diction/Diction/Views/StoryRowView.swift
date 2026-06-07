@@ -7,7 +7,6 @@ import SwiftUI
 /// to the original image-less row.
 struct StoryRowView: View {
   let story: StoryFile
-  let locked: Bool
   /// Cached cover-image URL, or nil for bare files and rows without metadata.
   let coverURL: URL?
 
@@ -46,17 +45,9 @@ struct StoryRowView: View {
   // MARK: - Pieces
 
   private var titleLine: some View {
-    HStack {
-      Text(displayTitle)
-        .font(.headline)
-      Spacer(minLength: 8)
-      if locked {
-        Image(systemName: "lock.fill")
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .accessibilityHidden(true)
-      }
-    }
+    Text(displayTitle)
+      .font(.headline)
+      .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var chips: some View {
@@ -138,7 +129,6 @@ struct StoryRowView: View {
     parts.append(story.source.label)
     if let version = story.metadata?.versionLabel { parts.append(version) }
     if story.lastPlayed != nil { parts.append("recently played") }
-    if locked { parts.append("locked, double tap to unlock") }
     return parts.joined(separator: ", ")
   }
 }

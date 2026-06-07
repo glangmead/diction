@@ -41,17 +41,51 @@ final class StoreManager {
     }
   }
 
-  /// Recompute `isFullVersion` from current verified entitlements.
+  /// Recompute `isFullVersion` from the verified entitlements StoreKit reports.
+  /// `currentEntitlements` is canonical in production, but the local
+  /// StoreKit-test environment on device can return it empty even for a
+  /// finished, verified non-consumable — so we fall back to the product's latest
+  /// transaction, which still surfaces ownership.
   func refreshEntitlement() async {
     var owned = false
+    var count = 0
     for await result in Transaction.currentEntitlements {
-      if case .verified(let transaction) = result,
-         transaction.productID == Self.fullVersionProductID,
-         transaction.revocationDate == nil {
-        owned = true
+      count += 1
+      switch result {
+      case .verified(let transaction):
+        print("[store] entitlement[\(count)] verified id=\(transaction.productID) "
+          + "revoked=\(String(describing: transaction.revocationDate))")
+        if transaction.productID == Self.fullVersionProductID,
+           transaction.revocationDate == nil {
+          owned = true
+        }
+      case .unverified(let transaction, let error):
+        print("[store] entitlement[\(count)] UNVERIFIED id=\(transaction.productID) error=\(error)")
       }
     }
+    if !owned {
+      // Production-safe: for an owned non-consumable `latest` is the purchase;
+      // a refund sets `revocationDate`, which re-locks.
+      if case .verified(let latest)? = await Transaction.latest(for: Self.fullVersionProductID),
+         latest.revocationDate == nil {
+        print("[store] entitlement via latest(for:) → owned")
+        owned = true
+      } else {
+        print("[store] latest(for:) had no usable transaction")
+      }
+    }
+    print("[store] currentEntitlements count=\(count) owned=\(owned)")
     isFullVersion = owned
+    entitlementResolved = true
+  }
+
+  /// Unlock directly from a verified transaction in hand — the purchase result
+  /// or a `Transaction.updates` push — instead of waiting on a
+  /// `currentEntitlements` re-query that returns empty in the local
+  /// StoreKit-test environment on device. A set `revocationDate` (refund) re-locks.
+  private func grantIfOwned(_ transaction: Transaction) {
+    guard transaction.productID == Self.fullVersionProductID else { return }
+    isFullVersion = (transaction.revocationDate == nil)
     entitlementResolved = true
   }
 
@@ -64,21 +98,27 @@ final class StoreManager {
       let result = try await product.purchase()
       switch result {
       case .success(let verification):
-        if case .verified(let transaction) = verification {
+        switch verification {
+        case .verified(let transaction):
+          print("[store] purchase verified id=\(transaction.productID) txn=\(transaction.id)")
           await transaction.finish()
-          await refreshEntitlement()
-        } else {
+          // Grant from this transaction directly — don't depend on the
+          // (empty-here) `currentEntitlements` re-query to flip `isFullVersion`.
+          grantIfOwned(transaction)
+        case .unverified(let transaction, let error):
+          print("[store] purchase UNVERIFIED id=\(transaction.productID) error=\(error)")
           lastError = "Couldn't verify the purchase."
         }
       case .pending:
         // Ask to Buy / SCA: entitlement arrives later via `Transaction.updates`.
-        break
+        print("[store] purchase pending")
       case .userCancelled:
-        break
+        print("[store] purchase cancelled")
       @unknown default:
-        break
+        print("[store] purchase unknown result")
       }
     } catch {
+      print("[store] purchase threw: \(error)")
       lastError = error.localizedDescription
     }
   }
@@ -93,12 +133,19 @@ final class StoreManager {
     }
   }
 
-  /// A transaction pushed via `Transaction.updates` (renewal, refund, remote
-  /// grant). Finish it and re-derive entitlement.
+  /// A transaction pushed via `Transaction.updates` (refund, remote grant,
+  /// Family-Sharing change). Grant/revoke from the verified transaction itself;
+  /// only fall back to a full re-derive when it's unverified.
   private func handle(_ result: VerificationResult<Transaction>) async {
-    if case .verified(let transaction) = result {
+    switch result {
+    case .verified(let transaction):
+      print("[store] update verified id=\(transaction.productID) "
+        + "revoked=\(String(describing: transaction.revocationDate))")
       await transaction.finish()
+      grantIfOwned(transaction)
+    case .unverified:
+      print("[store] update unverified — reconciling from entitlements")
+      await refreshEntitlement()
     }
-    await refreshEntitlement()
   }
 }

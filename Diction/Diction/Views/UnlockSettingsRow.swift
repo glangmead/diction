@@ -20,7 +20,7 @@ struct UnlockSettingsRow: View {
         Button {
           showingPaywall = true
         } label: {
-          LabeledContent("Unlock all features") {
+          LabeledContent("Unlock voice features") {
             HStack(spacing: 6) {
               if let price = store.product?.displayPrice {
                 Text(price).foregroundStyle(.secondary)
@@ -34,7 +34,7 @@ struct UnlockSettingsRow: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the in-app purchase to play any game and use any voice.")
+        .accessibilityHint("Opens the in-app purchase to unlock the voice features.")
         .sheet(isPresented: $showingPaywall) {
           PaywallView()
         }
@@ -42,8 +42,9 @@ struct UnlockSettingsRow: View {
     } footer: {
       Text(
         """
-        Demo plays the bundled game and four narration voices. Unlock to play \
-        any game you add and use every voice.
+        Everything else is free — add any game and play with the keyboard. \
+        Unlock to narrate with premium neural voices and to play by speaking \
+        your commands.
         """
       )
     }

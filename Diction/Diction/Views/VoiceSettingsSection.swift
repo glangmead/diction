@@ -5,8 +5,15 @@ import AVFoundation
 /// system "accessibility" voice picker, the shared speech rate, and the wake
 /// word. The two voice engines are presented in parallel so they read the same.
 struct VoiceSettingsSection: View {
+  /// Asks the presenter (SettingsView) to show the paywall. The sheet is owned
+  /// up there on stable content, not anchored to this `Section` — see SettingsView.
+  let onRequestUnlock: () -> Void
+
   @Environment(StoreManager.self) private var store
-  @AppStorage("useKokoro") private var useKokoro: Bool = true
+  // Both voice features default off — they're the paid unlock. A free user
+  // narrates through the accessibility voice and types commands.
+  @AppStorage("useKokoro") private var useKokoro: Bool = false
+  @AppStorage("voiceInput") private var voiceInput: Bool = false
   @AppStorage("kokoroVoiceId") private var kokoroVoiceId: String = "af_heart"
   @AppStorage("speechVoiceId") private var voiceId: String = ""
   @AppStorage("speechRate") private var speechRate: Double = Double(
@@ -16,18 +23,21 @@ struct VoiceSettingsSection: View {
 
   var body: some View {
     Section {
-      Toggle("Use neural voice", isOn: $useKokoro)
-        .accessibilityHint("When off, narration uses the accessibility voice below.")
+      gatedToggle(
+        "Use neural voice",
+        isOn: $useKokoro,
+        hint: "When off, narration uses the accessibility voice below."
+      )
 
-      if useKokoro {
-        NavigationLink {
-          KokoroVoicePickerView(title: "Neural Voice", selectedVoiceID: $kokoroVoiceId)
-        } label: {
-          LabeledContent("Neural voice") {
-            Text(KokoroSpeechEngine.displayName(
-              for: DemoPolicy.effectiveKokoroVoice(kokoroVoiceId, fullVersion: store.isFullVersion)))
-              .foregroundStyle(.secondary)
-          }
+      // Always reachable, even when neural is locked or off, so anyone can open
+      // it and audition every voice. The chosen voice narrates only once neural
+      // is unlocked and turned on.
+      NavigationLink {
+        KokoroVoicePickerView(title: "Neural Voice", selectedVoiceID: $kokoroVoiceId)
+      } label: {
+        LabeledContent("Neural voice") {
+          Text(KokoroSpeechEngine.displayName(for: kokoroVoiceId))
+            .foregroundStyle(.secondary)
         }
       }
 
@@ -57,6 +67,12 @@ struct VoiceSettingsSection: View {
         .accessibilityValue(rateAccessibilityValue)
       }
 
+      gatedToggle(
+        "Play with my voice",
+        isOn: $voiceInput,
+        hint: "Speak your commands instead of typing."
+      )
+
       VStack(alignment: .leading, spacing: 8) {
         LabeledContent("Wake word") {
           TextField("game", text: $wakeWord)
@@ -81,6 +97,36 @@ struct VoiceSettingsSection: View {
         used when the neural voice is off or unavailable.
         """
       )
+    }
+  }
+
+  /// A toggle for a paid voice feature. When unlocked it's a normal `Toggle`;
+  /// while locked it's a row with a lock that opens the paywall instead of
+  /// flipping — "show a paywall if the user tries to turn it on".
+  @ViewBuilder
+  private func gatedToggle(_ title: String, isOn: Binding<Bool>, hint: String) -> some View {
+    if store.isFullVersion {
+      Toggle(title, isOn: isOn)
+        .accessibilityHint(hint)
+    } else {
+      Button {
+        onRequestUnlock()
+      } label: {
+        LabeledContent {
+          Image(systemName: "lock.fill")
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
+        } label: {
+          Text(title)
+            .foregroundStyle(.primary)
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      // Title stays the visible-text label (so Voice Control's "tap <name>"
+      // works); the lock state is a value, not folded into the label.
+      .accessibilityValue("Locked")
+      .accessibilityHint("Opens the in-app purchase to unlock this feature.")
     }
   }
 

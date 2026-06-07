@@ -17,6 +17,11 @@ struct SettingsView: View {
   /// Diagnostic: log the ASR post-processing (heard words, per-word candidates,
   /// recovery/correction decisions) to the console.
   @AppStorage("logSpeechInterventions") private var logSpeechInterventions = false
+  /// The paywall presented by the gated voice toggles. Owned here, on the stable
+  /// NavigationStack content, rather than on `VoiceSettingsSection`'s `Section` —
+  /// a sheet anchored to a `Section` is torn down on re-render and takes the
+  /// Settings sheet with it.
+  @State private var showingPaywall = false
 
   /// Count of currently-installed Premium voices, used to surface whether
   /// the user has installed any of Apple's higher-quality voices.
@@ -48,13 +53,16 @@ struct SettingsView: View {
           Button("Done") { dismiss() }
         }
       }
+      .sheet(isPresented: $showingPaywall) {
+        PaywallView()
+      }
     }
   }
 
   private var settingsForm: some View {
     Form {
       UnlockSettingsRow()
-      VoiceSettingsSection()
+      VoiceSettingsSection(onRequestUnlock: { showingPaywall = true })
       accessibilityVoicesSection
       readingTextSection
       diagnosticsSection

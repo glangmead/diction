@@ -75,14 +75,31 @@ enum AboutContent {
 
 Play interactive fiction games with your voice, while the device reads the game to you!
 
+The free version narrates with Apple's Acccessibility TTS engine.
+
+**Unlock the full version to give voice commands and to use the upgraded neural voice engine.**
+
 Try Find to see a list of classic games that are a click away.
+
+## Game commands
+
+Say or type "game" followed by these commands to issue commands to Diction itself:
+
+* "stop": stop narrating the current game output
+* "repeat": narrate the current game output again
+* "windows": explain what grid panels are open, e.g. a status bar
+* "window 2": read out what's in window 2, e.g. the status bar
+* "keywords": read which words in the last output were bolded or colored (important for Blue Lacuna)
+* "inputs": read the last 20 commands you gave in reverse chronological order
+* "input 2": issue one of your previous commands
 
 ## Tips
 
-* The mic is automatically listening and can tell when you're done talking.
-* Mute the mic or speaker in the top toolbar if you only want some of the voice features.
-* You can use Apple's voices, or an experimental CoreML family of voices.
 * To add to the Apple voices you have to first visit your device's Settings > Accessibility > Read & Speak > Voices > English > Voice.
+* Tap the speaker icon in the top toolbar to silence the narration. Turn it back on at any time.
+* _(Full version)_ The mic is automatically listening and can tell when you're done talking.
+* _(Full version)_ Mute the mic in the top toolbar to stop giving voice input.
+* _(Full version)_ The recognition favors words in the recent game log, to help with accuracy and to include unusual words and names.
 
 """
   // swiftlint:enable line_length

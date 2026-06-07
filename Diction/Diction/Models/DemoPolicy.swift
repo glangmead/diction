@@ -1,29 +1,26 @@
 import Foundation
 
-/// The demo-vs-full feature rules, in one pure place so they can be unit-tested
-/// without StoreKit. `fullVersion` is the live entitlement from `StoreManager`.
+/// The free-vs-unlocked feature rules, in one pure place so they can be
+/// unit-tested without StoreKit. `fullVersion` is the live entitlement from
+/// `StoreManager`.
+///
+/// The non-voice experience is entirely free: any game plays, and narration
+/// through Apple's on-board voices works without the unlock. The single IAP
+/// (`com.luminous.diction.full`) buys the two invested-in voice features —
+/// neural (Kokoro) narration and speak-to-command.
 nonisolated enum DemoPolicy {
-  /// Kokoro voices playable in demo: the first voice of each accent/gender group
-  /// (US·F, US·M, UK·F, UK·M). All system `AVSpeechSynthesisVoice`s are free too,
-  /// but they never reach this type — the system-voice picker isn't gated.
-  static let demoKokoroVoiceIDs: Set<String> =
-    ["af_heart", "am_michael", "bf_emma", "bm_george"]
+  /// Neural (Kokoro) narration requires the unlock. Auditioning voices in the
+  /// picker is always free; this gates *narration* and the "Use neural voice"
+  /// toggle.
+  static func neuralVoiceUnlocked(fullVersion: Bool) -> Bool { fullVersion }
 
-  /// Demo plays only bundled games; full plays anything.
-  static func isPlayable(_ story: StoryFile, fullVersion: Bool) -> Bool {
-    fullVersion || story.source == .bundled
-  }
+  /// Speak-to-command ("Play with my voice") requires the unlock.
+  static func voiceInputUnlocked(fullVersion: Bool) -> Bool { fullVersion }
 
-  /// Call only with Kokoro voice IDs. System voices are never gated and never
-  /// reach this function.
-  static func isKokoroVoiceUnlocked(_ id: String, fullVersion: Bool) -> Bool {
-    fullVersion || demoKokoroVoiceIDs.contains(id)
-  }
-
-  /// `stored` if unlocked, else the free default `af_heart` — so demo never
-  /// narrates with a paid voice even if a locked ID is somehow stored (e.g.
-  /// entitlement lost after a refund).
-  static func effectiveKokoroVoice(_ stored: String, fullVersion: Bool) -> String {
-    isKokoroVoiceUnlocked(stored, fullVersion: fullVersion) ? stored : "af_heart"
+  /// Neural narration is active only when the setting is on AND unlocked — so a
+  /// lapsed entitlement (refund) cleanly falls back to the system voice rather
+  /// than narrating with a paid voice.
+  static func usesNeuralVoice(setting useKokoro: Bool, fullVersion: Bool) -> Bool {
+    useKokoro && neuralVoiceUnlocked(fullVersion: fullVersion)
   }
 }

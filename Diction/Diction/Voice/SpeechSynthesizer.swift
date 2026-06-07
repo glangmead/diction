@@ -50,6 +50,7 @@ final class SpeechSynthesizer: NSObject {
 
   func speakCommandEcho(_ command: String) async {
     guard isAvailable else { return }
+    activatePlaybackSession()
     if useKokoro {
       await kokoro.prepareIfNeeded()
       if kokoro.isReady {
@@ -76,6 +77,7 @@ final class SpeechSynthesizer: NSObject {
   /// before every utterance.
   func speak(_ entries: [StyledText]) async {
     guard isAvailable else { return }
+    activatePlaybackSession()
     isStopped = false
     if useKokoro {
       await kokoro.prepareIfNeeded()
@@ -175,6 +177,20 @@ final class SpeechSynthesizer: NSObject {
 
   // MARK: - Internals
 
+  /// Ensure an active, playback-capable audio session before narrating. The
+  /// recognizer owns a `.playAndRecord` session while listening, but narration is
+  /// free and mic-independent now, so the synthesizer can't assume the recognizer
+  /// has activated one — it activates `.playback` itself when nothing else has.
+  /// A compatible category already in place (the recognizer's `.playAndRecord`)
+  /// is left untouched. Mirrors `KokoroSpeechEngine.ensureSessionForPlayback`.
+  private func activatePlaybackSession() {
+    let session = AVAudioSession.sharedInstance()
+    if session.category != .playback && session.category != .playAndRecord {
+      try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
+    }
+    try? session.setActive(true)
+  }
+
   private func enqueue(_ utterance: AVSpeechUtterance) async {
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       pendingContinuations.append(continuation)
@@ -188,15 +204,19 @@ final class SpeechSynthesizer: NSObject {
     return stored > 0 ? Float(stored) : AVSpeechUtteranceDefaultSpeechRate
   }
 
-  /// Spike toggle (default on): use the neural voice when the model is present.
+  /// Use the neural voice only when the setting is on AND the unlock is owned.
+  /// Default off: neural narration is a paid feature, so a free user narrates
+  /// through the system voice and a refunded owner cleanly falls back to it.
   private var useKokoro: Bool {
-    UserDefaults.standard.object(forKey: "useKokoro") as? Bool ?? true
+    let setting = UserDefaults.standard.object(forKey: "useKokoro") as? Bool ?? false
+    return DemoPolicy.usesNeuralVoice(setting: setting, fullVersion: isFullVersion())
   }
 
   private var kokoroGameVoice: String {
+    // Reaching here implies neural is unlocked (see `useKokoro`), so the stored
+    // voice is used as-is — every Kokoro voice is available to an owner.
     let id = UserDefaults.standard.string(forKey: "kokoroVoiceId") ?? ""
-    let stored = id.isEmpty ? "af_heart" : id
-    return DemoPolicy.effectiveKokoroVoice(stored, fullVersion: isFullVersion())
+    return id.isEmpty ? "af_heart" : id
   }
 
   /// Kokoro speed from the shared Settings rate, so `faster` / `slower` and the

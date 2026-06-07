@@ -19,7 +19,7 @@ struct PaywallView: View {
         .padding()
         .frame(maxWidth: .infinity)
       }
-      .navigationTitle("Unlock all features")
+      .navigationTitle("Unlock the voice features")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -34,13 +34,13 @@ struct PaywallView: View {
 
   private var header: some View {
     VStack(spacing: 8) {
-      Image(systemName: "books.vertical.fill")
+      Image(systemName: "waveform")
         .font(.system(size: 48))
         .foregroundStyle(.tint)
         .accessibilityHidden(true)
-      Text("Unlock all features")
+      Text("Unlock the voice features")
         .font(.title2.bold())
-      Text("Play every game you add, and use every narration voice.")
+      Text("Narrate with premium neural voices, and play hands-free by speaking your commands.")
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
@@ -49,8 +49,8 @@ struct PaywallView: View {
 
   private var featureList: some View {
     VStack(alignment: .leading, spacing: 12) {
-      feature("play.circle.fill", "Play any game you import or download from IFDB")
-      feature("waveform", "Use every neural narration voice")
+      feature("waveform", "Premium neural narration voices")
+      feature("mic.fill", "Play hands-free — speak your commands")
       feature("infinity", "One-time purchase — no subscription")
     }
     .frame(maxWidth: .infinity, alignment: .leading)

@@ -68,7 +68,7 @@ struct LibraryView: View {
       }
       .animation(.default, value: voiceWarmer.readiness)
       .task {
-        voiceWarmer.warmUpIfNeeded()
+        voiceWarmer.warmUpIfNeeded(unlocked: store.isFullVersion)
         // First launch ever: surface the About screen once. The flag is set when
         // that sheet is dismissed (see the Settings sheet's onDismiss).
         if !hasSeenAbout {
@@ -228,32 +228,11 @@ struct LibraryView: View {
     .accessibilityLabel("Preparing narration voice")
   }
 
-  /// Locked (non-bundled in demo) rows open the paywall instead of the game;
-  /// playable rows navigate. Locks only show once entitlement has resolved, so a
-  /// returning owner never sees a flash on cold launch.
-  @ViewBuilder
+  /// Every game is free to play, so every row navigates straight into it.
   private func row(for story: StoryFile) -> some View {
-    if isLocked(story) {
-      Button {
-        showingPaywall = true
-      } label: {
-        storyRow(story, locked: true)
-      }
-      .buttonStyle(.plain)
-    } else {
-      NavigationLink(value: story) {
-        storyRow(story, locked: false)
-      }
+    NavigationLink(value: story) {
+      StoryRowView(story: story, coverURL: fileManager.coverURL(for: story))
     }
-  }
-
-  private func isLocked(_ story: StoryFile) -> Bool {
-    store.entitlementResolved
-      && !DemoPolicy.isPlayable(story, fullVersion: store.isFullVersion)
-  }
-
-  private func storyRow(_ story: StoryFile, locked: Bool) -> some View {
-    StoryRowView(story: story, locked: locked, coverURL: fileManager.coverURL(for: story))
   }
 }
 

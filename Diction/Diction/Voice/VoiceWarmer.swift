@@ -17,8 +17,13 @@ final class VoiceWarmer {
 
   let engine = KokoroSpeechEngine()
 
+  /// Set when the library passes the live entitlement into `warmUpIfNeeded`.
+  /// Warming and readiness are gated on it so a locked (or refunded) user never
+  /// sees a stuck "preparing" banner for a model they can't hear.
+  private var unlocked = false
+
   var readiness: Readiness {
-    Self.resolveReadiness(useKokoro: useKokoro, state: engine.state)
+    Self.resolveReadiness(useKokoro: useKokoro && unlocked, state: engine.state)
   }
 
   /// Pure mapping, unit-tested without a live engine.
@@ -33,9 +38,10 @@ final class VoiceWarmer {
 
   /// Begin loading the neural model + lexicon now (e.g. when the library
   /// appears) so opening a game is latency-free. No-op when the neural voice is
-  /// off — the system voice needs no load. Idempotent.
-  func warmUpIfNeeded() {
-    guard useKokoro else { return }
+  /// off or not unlocked — the system voice needs no load. Idempotent.
+  func warmUpIfNeeded(unlocked: Bool) {
+    self.unlocked = unlocked
+    guard useKokoro && unlocked else { return }
     let british = KokoroSpeechEngine.isBritish(voiceID: selectedVoiceID)
     Task {
       await engine.prepareIfNeeded()
@@ -43,8 +49,9 @@ final class VoiceWarmer {
     }
   }
 
+  /// Default off: neural narration is a paid feature.
   private var useKokoro: Bool {
-    UserDefaults.standard.object(forKey: "useKokoro") as? Bool ?? true
+    UserDefaults.standard.object(forKey: "useKokoro") as? Bool ?? false
   }
 
   private var selectedVoiceID: String {
