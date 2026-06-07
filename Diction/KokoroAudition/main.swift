@@ -3,8 +3,11 @@ import FluidAudio
 
 // KokoroAudition — a macOS dev tool to audition the app's neural-voice pipeline.
 //
-// Shares the app's `KokoroPhonemizer`, `KokoroText`, and `KokoroPCM` by symlink,
-// so edits to the app's copies are picked up here.
+// Shares the app's `KokoroPhonemizer`, `KokoroText`, `KokoroPCM`, and the
+// `Interventions/` types by symlink, so edits to the app's copies are picked up
+// here. By default it also loads the repo's `global.json` and applies its TTS
+// interventions (pronunciations / textRules / pausePolicy), so the audition
+// matches the app; `--no-profile` auditions the raw phonemizer.
 //
 // By default it reproduces the app's pipeline faithfully: `KokoroText.sentences`
 // chunking (sentence split, dialogue-merge, trailing-terminator strip) →
@@ -34,7 +37,7 @@ func usage() -> Never {
   FileHandle.standardError.write(Data("""
   Usage: KokoroAudition "<text>" [--voice af_heart] [--speed 1.0] [--raw] \
   [--ipa <phonemes>] [--file <path | ->] [--output <path.wav>] [--no-play] \
-  [--bundle <KokoroModels.bundle>]
+  [--bundle <KokoroModels.bundle>] [--profile <profile.json>] [--no-profile]
   """.utf8))
   exit(2)
 }
@@ -50,6 +53,8 @@ var bundlePath: String?
 var ipaOverride: String?  // --ipa: synthesize this IPA directly, bypassing KokoroPhonemizer
 var raw = false           // --raw: old single phonemize + single synthesize (normalized)
 var filePath: String?     // --file: read text from a file (or "-" for stdin), newlines intact
+var profilePath: String?  // --profile: a specific speech-profile JSON (default: repo global.json)
+var noProfile = false     // --no-profile: audition the raw phonemizer, no interventions
 
 let args = Array(CommandLine.arguments.dropFirst())
 var index = 0
@@ -67,6 +72,8 @@ while index < args.count {
   case "--bundle": bundlePath = value()
   case "--ipa": ipaOverride = value()
   case "--file": filePath = value()
+  case "--profile": profilePath = value()
+  case "--no-profile": noProfile = true
   case "--raw": raw = true
   case "--no-play": play = false
   case "-h", "--help": usage()
@@ -113,6 +120,31 @@ let output =
   outputPath.map { URL(fileURLWithPath: $0) }
   ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("kokoro-audition.wav")
 
+// Resolve the TTS interventions to apply. By default the tool mirrors the app:
+// it loads the repo's global.json (derived from #filePath, like bundleRoot) so
+// pronunciations / textRules / pausePolicy match what the app produces. --no-profile
+// auditions the raw phonemizer; --profile <path> uses a specific profile file.
+let ttsInterventions: TTSInterventions
+if noProfile {
+  ttsInterventions = .empty
+} else {
+  let profileURL =
+    profilePath.map { URL(fileURLWithPath: $0) }
+    ?? URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()  // KokoroAudition/
+      .deletingLastPathComponent()  // Diction/ (project root)
+      .appendingPathComponent("Diction/Resources/SpeechProfiles/global.json")
+  guard let data = try? Data(contentsOf: profileURL) else {
+    fail("Speech profile not found at \(profileURL.path)\nPass --profile <path> or --no-profile.")
+  }
+  guard let profile = try? SpeechProfile.decode(data) else {
+    fail("Could not decode speech profile at \(profileURL.path)")
+  }
+  ttsInterventions = profile.tts
+  FileHandle.standardError.write(
+    Data("[audition] applying TTS interventions from \(profileURL.path)\n".utf8))
+}
+
 // MARK: - Synthesize → play
 
 let manager = KokoroAneManager(variant: .english, directory: bundleRoot)
@@ -125,9 +157,10 @@ if let ipaOverride {
   print(ipaOverride)
   wav = try await manager.synthesizeFromPhonemes(ipaOverride, voice: voice, speed: speed)
 } else {
-  guard let phonemizer = await KokoroPhonemizer.load(bundleRoot: bundleRoot) else {
+  guard var phonemizer = await KokoroPhonemizer.load(bundleRoot: bundleRoot) else {
     fail("KokoroPhonemizer failed to load from \(bundleRoot.path)")
   }
+  phonemizer.tts = ttsInterventions   // apply global.json's pronunciations/textRules/pausePolicy
   if raw {
     // Old single-pass: whole text in one phonemize + one normalized synth.
     let ipa = try await phonemizer.phonemize(text, british: british)

@@ -56,3 +56,20 @@ func problemCorpus() async throws {
   let oov = try await phonemizer.phonemize("Frobozz", british: false)
   #expect(!oov.trimmingCharacters(in: .whitespaces).isEmpty, "OOV dropped: ‘Frobozz’ → ‘\(oov)’")
 }
+
+// misaki's number tokenizer swallows a "%" glued to a number ("100%" → "one
+// hundred"). The percent-sign textRule rewrites "%" to the word before G2P; this
+// proves "100%" then phonemizes identically to "100 percent".
+@Test("the percent-sign rule makes 100% read as 100 percent")
+func percentRule() async throws {
+  let root = Bundle.main.url(forResource: "KokoroModels", withExtension: "bundle")!
+  var phonemizer = try #require(await KokoroPhonemizer.load(bundleRoot: root))
+  let target = try await phonemizer.phonemize("100 percent", british: false)
+  #expect(!target.isEmpty)
+  phonemizer.tts = TTSInterventions(
+    pronunciations: [],
+    textRules: [TextRule(id: "percent", match: #"\s*%"#, action: .replace, with: " percent")],
+    pausePolicy: nil)
+  let withRule = try await phonemizer.phonemize("100%", british: false)
+  #expect(withRule == target, "‘100%’ → ‘\(withRule)’ vs ‘100 percent’ → ‘\(target)’")
+}

@@ -8,6 +8,9 @@ struct SettingsView: View {
   // Flowing-text font (defaults must match GameView's reading settings).
   @AppStorage("readingTypeface") private var readingTypeface = ReadingTypeface.sansSerif.rawValue
   @AppStorage("readingTextSize") private var readingTextSize = ReadingTextSize.medium.rawValue
+  /// Diagnostic: log the ASR post-processing (heard words, per-word candidates,
+  /// recovery/correction decisions) to the console.
+  @AppStorage("logSpeechInterventions") private var logSpeechInterventions = false
 
   /// Count of currently-installed Premium voices, used to surface whether
   /// the user has installed any of Apple's higher-quality voices.
@@ -22,6 +25,7 @@ struct SettingsView: View {
         VoiceSettingsSection()
         accessibilityVoicesSection
         readingTextSection
+        diagnosticsSection
         AcknowledgementsSection()
       }
       .navigationTitle("Settings")
@@ -30,6 +34,19 @@ struct SettingsView: View {
           Button("Done") { dismiss() }
         }
       }
+    }
+  }
+
+  // MARK: - Diagnostics
+
+  private var diagnosticsSection: some View {
+    Section {
+      Toggle("Log speech interventions", isOn: $logSpeechInterventions)
+    } header: {
+      Text("Diagnostics")
+    } footer: {
+      Text("Writes ASR recovery details — heard words, each word's candidates, and "
+        + "recovery/correction decisions — to the console.")
     }
   }
 

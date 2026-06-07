@@ -35,6 +35,63 @@ struct RecognitionPostProcessorTests {
     #expect(processor.process(utterance, knownWords: ["open", "peof"]) == "open PEOF")
   }
 
+  private func spelled(_ letters: String) -> [RecognizedUtterance.Word] {
+    letters.map { word(String($0), [String($0)]) }
+  }
+
+  @Test("joins a spelled run into a known parser word")
+  func joinsSpelled() {
+    let utterance = RecognizedUtterance(words: spelled("WNNF"))
+    let processor = RecognitionPostProcessor(interventions: ASRInterventions(
+      vocabulary: [], alternativesRecovery: false, joinSpelledWords: true, corrections: []))
+    #expect(processor.process(utterance, knownWords: ["wnnf"]) == "WNNF")
+  }
+
+  @Test("leaves a spelled run alone when the join isn't a known word")
+  func joinUnknown() {
+    let utterance = RecognizedUtterance(words: spelled("WNNF"))
+    let processor = RecognitionPostProcessor(interventions: ASRInterventions(
+      vocabulary: [], alternativesRecovery: false, joinSpelledWords: true, corrections: []))
+    #expect(processor.process(utterance, knownWords: ["west", "north"]) == "W N N F")
+  }
+
+  @Test("join off leaves the run spelled")
+  func joinOff() {
+    let utterance = RecognizedUtterance(words: spelled("WNNF"))
+    let processor = RecognitionPostProcessor(interventions: ASRInterventions(
+      vocabulary: [], alternativesRecovery: false, joinSpelledWords: false, corrections: []))
+    #expect(processor.process(utterance, knownWords: ["wnnf"]) == "W N N F")
+  }
+
+  @Test("joins a run embedded among other words")
+  func joinEmbedded() {
+    let utterance = RecognizedUtterance(words: [word("open", ["open"])] + spelled("WNNF"))
+    let processor = RecognitionPostProcessor(interventions: ASRInterventions(
+      vocabulary: [], alternativesRecovery: false, joinSpelledWords: true, corrections: []))
+    #expect(processor.process(utterance, knownWords: ["open", "wnnf"]) == "open WNNF")
+  }
+
+  @Test("joins the longest known prefix, leaving the rest spelled")
+  func joinLongestPrefix() {
+    let utterance = RecognizedUtterance(words: spelled("WNNFG"))
+    let processor = RecognitionPostProcessor(interventions: ASRInterventions(
+      vocabulary: [], alternativesRecovery: false, joinSpelledWords: true, corrections: []))
+    #expect(processor.process(utterance, knownWords: ["wnnf"]) == "WNNF G")
+  }
+
+  @Test("the optional log reports each word's candidates and the recovery decision")
+  func logsTrace() {
+    var lines: [String] = []
+    let utterance = RecognizedUtterance(words: [word("open", ["open"]), word("POF", ["POF", "PEOF"])])
+    let processor = RecognitionPostProcessor(interventions: ASRInterventions(
+      vocabulary: ["PEOF"], alternativesRecovery: true, corrections: []))
+    _ = processor.process(utterance, knownWords: ["open", "peof"], log: { lines.append($0) })
+    let joined = lines.joined(separator: "\n")
+    #expect(joined.contains("POF"))
+    #expect(joined.contains("PEOF"))        // the recovered candidate is shown
+    #expect(joined.contains("candidates"))  // the candidate list is logged
+  }
+
   @Test("a known best word is left alone even with alternatives present")
   func leavesKnown() {
     let utterance = RecognizedUtterance(words: [

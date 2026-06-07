@@ -2,18 +2,19 @@
   "schemaVersion": 1,
   "tts": {
     "pronunciations": [
-      { "word": "copied", "ipa": "kˈɑpid" },
-      { "word": "PRSO", "say": "parser object" }
+      { "word": "copied", "ipa": "kˈɑpid" }
     ],
     "textRules": [
       { "id": "zork-casing", "where": "before-g2p", "match": "\\bZORK\\b", "action": "replace", "with": "Zork" },
-      { "id": "digit-runs-as-digits", "where": "before-g2p", "match": "(?<![\\d,])\\d{4,}(?![\\d,])", "action": "spaceDigits" }
+      { "id": "digit-runs-as-digits", "where": "before-g2p", "match": "(?<![\\d,])\\d{5,}(?![\\d,])", "action": "spaceDigits" },
+      { "id": "percent-sign", "where": "before-g2p", "match": "\\s*%", "action": "replace", "with": " percent" }
     ],
     "pausePolicy": { "comma": 1, "semicolon": 1, "colon": 1, "dash": 3 }
   },
   "asr": {
-    "vocabulary": ["PEOF", "PRSO", "PRSI", "XYZZY"],
+    "vocabulary": ["PEOF", "PRSO", "PRSI", "XYZZY", "WNNF"],
     "alternativesRecovery": true,
+    "joinSpelledWords": true,
     "corrections": [
       { "from": "POF", "to": "PEOF", "mode": "wholeWord" }
     ]

@@ -103,8 +103,13 @@ final class VoiceCoordinator {
   private func postProcess(_ utterance: RecognizedUtterance) -> String {
     var known = Set(speechProfile.asr.vocabulary.map { $0.lowercased() })
     if let session { known.formUnion(session.dictionary.map { $0.lowercased() }) }
+    // Optional diagnostic trace (Settings → "Log speech interventions"): shows the
+    // heard words, each word's candidates, and the recovery/correction decisions.
+    let log: ((String) -> Void)? = UserDefaults.standard.bool(forKey: "logSpeechInterventions")
+      ? { FileHandle.standardError.write(Data("[diction-asr] \($0)\n".utf8)) }
+      : nil
     return RecognitionPostProcessor(interventions: speechProfile.asr)
-      .process(utterance, knownWords: known)
+      .process(utterance, knownWords: known, log: log)
   }
 
   // MARK: - Internal state
