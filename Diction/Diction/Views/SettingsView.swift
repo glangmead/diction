@@ -5,6 +5,12 @@ import UIKit
 struct SettingsView: View {
   @Environment(\.dismiss) private var dismiss
 
+  /// Which segment is showing. Owned by the presenter (a `@Binding`, not seeded
+  /// `@State`) so the first-launch presentation can reliably open on About while
+  /// every manual open lands on Settings — init-seeded `@State` captures only the
+  /// first render's value and would ignore a later change to the requested tab.
+  @Binding var selectedTab: SettingsTab
+
   // Flowing-text font (defaults must match GameView's reading settings).
   @AppStorage("readingTypeface") private var readingTypeface = ReadingTypeface.sansSerif.rawValue
   @AppStorage("readingTextSize") private var readingTextSize = ReadingTextSize.medium.rawValue
@@ -20,20 +26,39 @@ struct SettingsView: View {
 
   var body: some View {
     NavigationStack {
-      Form {
-        UnlockSettingsRow()
-        VoiceSettingsSection()
-        accessibilityVoicesSection
-        readingTextSection
-        diagnosticsSection
-        AcknowledgementsSection()
+      VStack(spacing: 0) {
+        Picker("Section", selection: $selectedTab) {
+          ForEach(SettingsTab.allCases) { tab in
+            Text(tab.label).tag(tab)
+          }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+
+        switch selectedTab {
+        case .settings: settingsForm
+        case .about: AboutPane()
+        }
       }
-      .navigationTitle("Settings")
+      .navigationTitle(selectedTab.label)
+      .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .confirmationAction) {
           Button("Done") { dismiss() }
         }
       }
+    }
+  }
+
+  private var settingsForm: some View {
+    Form {
+      UnlockSettingsRow()
+      VoiceSettingsSection()
+      accessibilityVoicesSection
+      readingTextSection
+      diagnosticsSection
+      AcknowledgementsSection()
     }
   }
 

@@ -36,6 +36,9 @@ struct GameView: View {
   @State private var isLoading = true
   @State private var loadError: String?
   @State private var showingSettings = false
+  /// Settings always opens to its Settings segment from in-game; the About segment
+  /// is reachable via the picker once open.
+  @State private var settingsTab: SettingsTab = .settings
   @State private var showingResetConfirm = false
   /// Bumped to restart the game from scratch: the load `.task` is keyed on it,
   /// so changing it re-runs the load against a freshly created session.
@@ -75,7 +78,7 @@ struct GameView: View {
       ToolbarItem(placement: .topBarTrailing) { resetButton }
     }
     .sheet(isPresented: $showingSettings) {
-      SettingsView()
+      SettingsView(selectedTab: $settingsTab)
     }
     .confirmationDialog(
       "Start over?", isPresented: $showingResetConfirm, titleVisibility: .visible

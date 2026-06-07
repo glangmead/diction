@@ -8,9 +8,14 @@ struct IFDBBrowserView: View {
   @State private var results: [IFDBSearchResult] = []
   @State private var isSearching = false
   @State private var downloading: Set<String> = []
+  /// TUIDs whose download network request has succeeded this session — the row
+  /// shows a checkmark instead of the Download button. View-local, so it resets
+  /// when the browser is torn down.
+  @State private var downloaded: Set<String> = []
   @State private var errorMessage: String?
   @State private var downloadError: String?
   @State private var showingDownloadError = false
+  @State private var pendingAdd: PendingStoryAdd?
   @State private var selected: IFDBSearchResult?
   private let client = IFDBClient()
 
@@ -51,6 +56,22 @@ struct IFDBBrowserView: View {
         } message: { message in
           Text(message)
         }
+        .confirmationDialog(
+          "Already in your library",
+          isPresented: Binding(
+            get: { pendingAdd != nil },
+            set: { if !$0 { cancelPendingAdd() } }
+          ),
+          presenting: pendingAdd
+        ) { pending in
+          Button("Add a Copy") { commitPendingAdd(pending) }
+          Button("Cancel", role: .cancel) { cancelPendingAdd() }
+        } message: { pending in
+          Text(
+            "“\(pending.displayTitle)” is identical to “\(pending.existingTitle)”, "
+              + "already in your library. Add another copy?"
+          )
+        }
     }
   }
 
@@ -87,6 +108,10 @@ struct IFDBBrowserView: View {
       if downloading.contains(result.tuid) {
         ProgressView()
           .accessibilityLabel("Downloading \(result.title)")
+      } else if downloaded.contains(result.tuid) {
+        Image(systemName: "checkmark.circle.fill")
+          .foregroundStyle(.green)
+          .accessibilityLabel("\(result.title) downloaded")
       } else {
         Button("Download") { downloadGame(result) }
           .buttonStyle(.bordered)
@@ -197,15 +222,56 @@ struct IFDBBrowserView: View {
       defer { downloading.remove(result.tuid) }
       do {
         let download = try await client.resolveDownload(tuid: result.tuid)
-        let documents = FileManager.default.urls(
-          for: .documentDirectory, in: .userDomainMask
-        )[0]
-        _ = try await client.downloadGame(download, title: result.title, to: documents)
-        fileManager.refresh()
+        let tempURL = try await client.downloadGame(download, title: result.title)
+        // The network request succeeded — show the checkmark now, before the
+        // dedup prompt (per design, fetch success is what the checkmark reports).
+        downloaded.insert(result.tuid)
+        ingest(tempURL: tempURL, displayTitle: result.title)
       } catch {
         downloadError = "\(result.title): \(error.localizedDescription)"
         showingDownloadError = true
       }
     }
+  }
+
+  /// Add the freshly downloaded temp file to the library, prompting first if it's
+  /// byte-identical to a game already present.
+  private func ingest(tempURL: URL, displayTitle: String) {
+    if let existing = fileManager.contentDuplicate(of: tempURL) {
+      pendingAdd = PendingStoryAdd(
+        sourceURL: tempURL,
+        preferredName: nil,
+        existingTitle: existing.title,
+        displayTitle: displayTitle
+      )
+    } else {
+      save(tempURL: tempURL, preferredName: nil)
+    }
+  }
+
+  private func commitPendingAdd(_ pending: PendingStoryAdd) {
+    save(tempURL: pending.sourceURL, preferredName: pending.preferredName)
+    pendingAdd = nil
+  }
+
+  private func cancelPendingAdd() {
+    if let pending = pendingAdd { removeTempDirectory(of: pending.sourceURL) }
+    pendingAdd = nil
+  }
+
+  private func save(tempURL: URL, preferredName: String?) {
+    do {
+      _ = try fileManager.addStory(from: tempURL, preferredName: preferredName)
+    } catch {
+      downloadError = error.localizedDescription
+      showingDownloadError = true
+    }
+    removeTempDirectory(of: tempURL)
+  }
+
+  /// The client stages each download in its own temp directory; remove the whole
+  /// directory once the file is copied into the library (or the add is canceled).
+  private func removeTempDirectory(of fileURL: URL) {
+    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
   }
 }

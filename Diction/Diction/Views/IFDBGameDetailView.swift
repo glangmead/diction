@@ -14,8 +14,12 @@ struct IFDBGameDetailView: View {
   @State private var isLoading = true
   @State private var loadError: String?
   @State private var isDownloading = false
+  /// Set once the download network request succeeds; flips the button to a
+  /// checkmark for the rest of this view's lifetime.
+  @State private var didDownload = false
   @State private var downloadError: String?
   @State private var showingDownloadError = false
+  @State private var pendingAdd: PendingStoryAdd?
 
   /// Horizontal inset for tag capsules. A `Capsule`'s corner radius is half its
   /// height, so the text needs at least that much side padding to clear the
@@ -35,6 +39,22 @@ struct IFDBGameDetailView: View {
       ) { _ in
       } message: { message in
         Text(message)
+      }
+      .confirmationDialog(
+        "Already in your library",
+        isPresented: Binding(
+          get: { pendingAdd != nil },
+          set: { if !$0 { cancelPendingAdd() } }
+        ),
+        presenting: pendingAdd
+      ) { pending in
+        Button("Add a Copy") { commitPendingAdd(pending) }
+        Button("Cancel", role: .cancel) { cancelPendingAdd() }
+      } message: { pending in
+        Text(
+          "“\(pending.displayTitle)” is identical to “\(pending.existingTitle)”, "
+            + "already in your library. Add another copy?"
+        )
       }
   }
 
@@ -110,6 +130,10 @@ struct IFDBGameDetailView: View {
   private func downloadSection(_ detail: IFDBGameDetail) -> some View {
     if isDownloading {
       ProgressView("Downloading…")
+    } else if didDownload {
+      Label("Downloaded", systemImage: "checkmark.circle")
+        .frame(maxWidth: .infinity)
+        .foregroundStyle(.green)
     } else if detail.playableDownload != nil {
       Button {
         download(detail)
@@ -219,23 +243,63 @@ struct IFDBGameDetailView: View {
       showingDownloadError = true
       return
     }
+    let title = detail.title ?? fallbackTitle
     isDownloading = true
     Task {
       defer { isDownloading = false }
       do {
-        let documents = FileManager.default.urls(
-          for: .documentDirectory, in: .userDomainMask
-        )[0]
-        _ = try await client.downloadGame(
-          download,
-          title: detail.title ?? fallbackTitle,
-          to: documents
-        )
-        fileManager.refresh()
+        let tempURL = try await client.downloadGame(download, title: title)
+        // Fetch succeeded — show the checkmark now, ahead of any dedup prompt.
+        didDownload = true
+        ingest(tempURL: tempURL, displayTitle: title)
       } catch {
         downloadError = error.localizedDescription
         showingDownloadError = true
       }
     }
+  }
+
+}
+
+// MARK: - Library ingest & dedup
+
+extension IFDBGameDetailView {
+  /// Add the freshly downloaded temp file to the library, prompting first if it's
+  /// byte-identical to a game already present.
+  fileprivate func ingest(tempURL: URL, displayTitle: String) {
+    if let existing = fileManager.contentDuplicate(of: tempURL) {
+      pendingAdd = PendingStoryAdd(
+        sourceURL: tempURL,
+        preferredName: nil,
+        existingTitle: existing.title,
+        displayTitle: displayTitle
+      )
+    } else {
+      save(tempURL: tempURL, preferredName: nil)
+    }
+  }
+
+  fileprivate func commitPendingAdd(_ pending: PendingStoryAdd) {
+    save(tempURL: pending.sourceURL, preferredName: pending.preferredName)
+    pendingAdd = nil
+  }
+
+  fileprivate func cancelPendingAdd() {
+    if let pending = pendingAdd { removeTempDirectory(of: pending.sourceURL) }
+    pendingAdd = nil
+  }
+
+  private func save(tempURL: URL, preferredName: String?) {
+    do {
+      _ = try fileManager.addStory(from: tempURL, preferredName: preferredName)
+    } catch {
+      downloadError = error.localizedDescription
+      showingDownloadError = true
+    }
+    removeTempDirectory(of: tempURL)
+  }
+
+  private func removeTempDirectory(of fileURL: URL) {
+    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
   }
 }

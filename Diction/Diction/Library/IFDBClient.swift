@@ -120,14 +120,19 @@ actor IFDBClient {
     return download
   }
 
-  /// Downloads a resolved story file into `directory`, naming it after the
-  /// game title, and returns the saved file's URL.
-  func downloadGame(_ download: IFDBDownload, title: String, to directory: URL) async throws -> URL {
+  /// Downloads a resolved story file into a fresh temporary directory, naming it
+  /// after the game title, and returns the saved file's URL. The caller hands this
+  /// URL to `StoryFileManager` (which dedups and copies it into the library under a
+  /// unique name) and is responsible for removing the temp directory afterward.
+  func downloadGame(_ download: IFDBDownload, title: String) async throws -> URL {
     let ext = download.url.pathExtension.isEmpty ? "z5" : download.url.pathExtension
     let safeTitle = title
       .replacingOccurrences(of: "/", with: "-")
       .replacingOccurrences(of: ":", with: "-")
-    let destination = directory.appendingPathComponent("\(safeTitle).\(ext)")
+    let tempDir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ifdb-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    let destination = tempDir.appendingPathComponent("\(safeTitle).\(ext)")
     try await self.download(from: download.url, to: destination)
     return destination
   }
