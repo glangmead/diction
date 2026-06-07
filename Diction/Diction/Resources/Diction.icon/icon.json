@@ -14,10 +14,10 @@
     {
       "layers" : [
         {
-          "image-name" : "Image 9.heif",
-          "name" : "Image 9",
+          "image-name" : "Image 4.heif",
+          "name" : "Image 4",
           "position" : {
-            "scale" : 1.8,
+            "scale" : 1.75,
             "translation-in-points" : [
               0,
               0
