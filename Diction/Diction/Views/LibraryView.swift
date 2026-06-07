@@ -22,11 +22,20 @@ struct LibraryView: View {
   /// Set once the user has seen the first-launch About screen; suppresses the
   /// auto-present on every later launch.
   @AppStorage("hasSeenAbout") private var hasSeenAbout = false
+  @State private var searchText = ""
+
+  /// The library filtered by the search field — every visible field is searched.
+  /// A blank query shows everything.
+  private var displayedStories: [StoryFile] {
+    searchText.trimmingCharacters(in: .whitespaces).isEmpty
+      ? fileManager.stories
+      : fileManager.stories.filter { $0.matches(searchText) }
+  }
 
   var body: some View {
     NavigationStack {
       List {
-        ForEach(fileManager.stories) { story in
+        ForEach(displayedStories) { story in
           row(for: story)
             .swipeActions(edge: .trailing) {
               if story.source != .bundled {
@@ -38,12 +47,14 @@ struct LibraryView: View {
               }
             }
         }
-        if store.entitlementResolved && !store.isFullVersion {
+        // The promo isn't a game, so it stays out of search results.
+        if searchText.isEmpty && store.entitlementResolved && !store.isFullVersion {
           Section {
             LibraryUnlockRow { showingPaywall = true }
           }
         }
       }
+      .searchable(text: $searchText, prompt: "Search your library")
       .navigationTitle("Library")
       // A large title collapses to an empty band under a top `safeAreaInset`,
       // stranding the banner below it; an inline title coexists cleanly. (A
@@ -185,6 +196,8 @@ struct LibraryView: View {
               "Import story files or search IFDB to get started."
             )
           )
+        } else if displayedStories.isEmpty {
+          ContentUnavailableView.search(text: searchText)
         }
       }
     }

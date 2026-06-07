@@ -46,3 +46,31 @@ nonisolated struct StoryFile: Identifiable, Hashable, Sendable {
     }
   }
 }
+
+// MARK: - Search
+
+extension StoryFile {
+  /// Case-insensitive search across every visible field. Each whitespace-separated
+  /// token of `query` must appear somewhere in the combined text (token-AND), so
+  /// "jota lost" matches "Lost Pig" by "Admiral Jota". An empty query matches all.
+  func matches(_ query: String) -> Bool {
+    let tokens = query.lowercased().split(whereSeparator: \.isWhitespace)
+    guard !tokens.isEmpty else { return true }
+    let haystack = searchableText
+    return tokens.allSatisfy { haystack.contains($0) }
+  }
+
+  /// Every field a search should cover, lowercased and joined: the filename title,
+  /// the catalog fields (official title/author/year/headline/version), and the
+  /// format and source chips shown in the row.
+  private var searchableText: String {
+    var parts = [title, format == .zMachine ? "Z-machine" : "Glulx", source.label]
+    if let metadata {
+      parts.append(contentsOf: [
+        metadata.title, metadata.author, metadata.year,
+        metadata.headline, metadata.versionLabel
+      ].compactMap { $0 })
+    }
+    return parts.joined(separator: " ").lowercased()
+  }
+}
