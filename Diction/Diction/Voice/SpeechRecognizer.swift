@@ -38,6 +38,11 @@ final class SpeechRecognizer {
 
   private var silenceTask: Task<Void, Never>?
   private let silenceInterval: Duration = .milliseconds(1200)
+  /// Set when the silence timer fires and we call `endAudio()` — i.e. the user
+  /// finished and the transcription is a complete, stable utterance. Lets a cycle
+  /// that then ends on a transient error (common on-device) still deliver its
+  /// text instead of dropping it. Reset per cycle. See `RecognitionFinalizationPolicy`.
+  private var endpointed = false
 
   /// Schedules the next cycle after a backoff when the recognizer is thrashing
   /// (erroring before it can capture audio). Cancelled on stop.
@@ -163,9 +168,12 @@ final class SpeechRecognizer {
     }
     self.request = req
 
-    let joined = cappedContext.joined(separator: ", ")
-    let contextMsg = "[diction-dict] contextualStrings (\(cappedContext.count)): \(joined)\n"
-    FileHandle.standardError.write(Data(contextMsg.utf8))
+    // Debug landmark: per-cycle dump of the contextual-strings bias list. Left
+    // commented because it prints every cycle and buries the [diction-rec] trace;
+    // uncomment to inspect biasing.
+    // let joined = cappedContext.joined(separator: ", ")
+    // let contextMsg = "[diction-dict] contextualStrings (\(cappedContext.count)): \(joined)\n"
+    // FileHandle.standardError.write(Data(contextMsg.utf8))
 
     let input = engine.inputNode
     input.removeTap(onBus: 0)
@@ -186,6 +194,7 @@ final class SpeechRecognizer {
     }
 
     transcription = ""
+    endpointed = false
     isListening = true
     cycleStart = clock.now
 
@@ -209,13 +218,41 @@ final class SpeechRecognizer {
         scheduleSilenceCheck()
       }
       if result.isFinal {
-        endCycle(emitFinal: true)
+        endCycle(terminus: .finalResult)
         return
       }
     }
-    if error != nil {
-      endCycle(emitFinal: false)
+    if let error {
+      endCycle(terminus: .failed(error))
     }
+  }
+
+  /// How a capture cycle ended — drives both the delivery decision and the trace.
+  private enum Terminus {
+    case finalResult
+    case failed(Error)
+  }
+
+  /// Trace every finalization that carried text (or reached a final result), so a
+  /// dropped utterance is visible whichever branch it took: a transient error, or
+  /// an empty/short final result that silently delivers nothing. Gated by the same
+  /// "Log speech interventions" toggle as the post-processor trace. Idle no-speech
+  /// error cycles (no text, not final) are skipped so the trace isn't drowned.
+  /// A `→ deliver` line is followed by a `[diction-asr]` line; `→ drop` is not.
+  private func logCycleEnd(terminus: Terminus, isFinal: Bool, hasText: Bool, text: String, deliver: Bool) {
+    guard UserDefaults.standard.bool(forKey: "logSpeechInterventions") else { return }
+    guard hasText || isFinal else { return }
+    let cause: String
+    switch terminus {
+    case .finalResult:
+      cause = "final"
+    case .failed(let error):
+      let nsError = error as NSError
+      cause = "error \(nsError.domain) \(nsError.code)"
+    }
+    let msg = "[diction-rec] cycle end (\(cause)) endpointed=\(endpointed) " +
+      "hasText=\(hasText) text=\"\(text)\" → \(deliver ? "deliver" : "drop")\n"
+    FileHandle.standardError.write(Data(msg.utf8))
   }
 
   /// Cancels any in-flight silence timer and starts a new one. When it fires
@@ -236,12 +273,16 @@ final class SpeechRecognizer {
     guard isListening,
           !transcription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else { return }
+    // The user has gone quiet on a non-empty transcription: this is a complete
+    // utterance. Mark it so a cycle that ends on a transient error rather than a
+    // final result still delivers it.
+    endpointed = true
     request?.endAudio()
   }
 
   /// End one cycle and immediately start the next while the engine keeps
   /// running, so the mic is live continuously — including during narration.
-  private func endCycle(emitFinal: Bool) {
+  private func endCycle(terminus: Terminus) {
     silenceTask?.cancel()
     let final = transcription
     let utterance = latestTranscription.map(Self.utterance(from:)) ?? .plain(final)
@@ -252,8 +293,13 @@ final class SpeechRecognizer {
     task = nil
     latestTranscription = nil
 
-    if emitFinal,
-       !utterance.best.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    let isFinal: Bool
+    if case .finalResult = terminus { isFinal = true } else { isFinal = false }
+    let hasText = !utterance.best.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let deliver = RecognitionFinalizationPolicy.shouldDeliver(
+      isFinal: isFinal, endpointed: endpointed, hasText: hasText)
+    logCycleEnd(terminus: terminus, isFinal: isFinal, hasText: hasText, text: utterance.best, deliver: deliver)
+    if deliver {
       onUtterance?(utterance)
     }
 

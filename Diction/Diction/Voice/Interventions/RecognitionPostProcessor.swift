@@ -25,12 +25,29 @@ nonisolated struct RecognitionPostProcessor: Sendable {
     let resolved = words.map { word -> String in
       let candidates = word.alternatives.joined(separator: ", ")
       let known = knownWords.contains(Self.normalize(word.best))
-      if recovery, !known,
-         let alt = word.alternatives.first(where: { knownWords.contains(Self.normalize($0)) }) {
+      // Recovery is a single-token OOV swap. Apple can hand us a segment whose
+      // substring is multi-word ("Take all", offered alongside "Take off"/"Take");
+      // running the single-word membership test on it always misses and would
+      // "recover" into a shorter alternative, silently dropping a word. Only swap
+      // when both the best and the chosen alternative are single words.
+      let singleWord = Self.isSingleWord(word.best)
+      if recovery, !known, singleWord,
+         let alt = word.alternatives.first(where: {
+           Self.isSingleWord($0) && knownWords.contains(Self.normalize($0))
+         }) {
         log?("  '\(word.best)' → '\(alt)' (recovered) | candidates: [\(candidates)]")
         return alt
       }
-      let reason = known ? "known" : (recovery ? "no known candidate" : "recovery off")
+      let reason: String
+      if known {
+        reason = "known"
+      } else if !singleWord {
+        reason = "multi-word segment"
+      } else if recovery {
+        reason = "no known candidate"
+      } else {
+        reason = "recovery off"
+      }
       log?("  '\(word.best)' kept (\(reason)) | candidates: [\(candidates)]")
       return word.best
     }
@@ -80,6 +97,11 @@ nonisolated struct RecognitionPostProcessor: Sendable {
 
   private static func isSingleLetter(_ text: String) -> Bool {
     text.count == 1 && (text.first?.isLetter ?? false)
+  }
+
+  /// One whitespace-delimited token (tolerating stray leading/trailing spaces).
+  private static func isSingleWord(_ text: String) -> Bool {
+    text.split(whereSeparator: \.isWhitespace).count <= 1
   }
 
   private static let strip = CharacterSet.punctuationCharacters.union(.whitespaces)

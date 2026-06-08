@@ -92,6 +92,17 @@ struct RecognitionPostProcessorTests {
     #expect(joined.contains("candidates"))  // the candidate list is logged
   }
 
+  @Test("recovery leaves a multi-word segment alone instead of truncating it")
+  func leavesMultiWordSegment() {
+    // Apple sometimes returns a whole short command as a single segment whose
+    // substring is multi-word ("Take all") with multi-word alternatives. The
+    // single-word recovery test must not fire here and drop a word.
+    let utterance = RecognizedUtterance(words: [word("Take all", ["Take all", "Take off", "Take"])])
+    let processor = RecognitionPostProcessor(interventions: ASRInterventions(
+      vocabulary: [], alternativesRecovery: true, corrections: []))
+    #expect(processor.process(utterance, knownWords: ["take", "all", "off"]) == "Take all")
+  }
+
   @Test("a known best word is left alone even with alternatives present")
   func leavesKnown() {
     let utterance = RecognizedUtterance(words: [
