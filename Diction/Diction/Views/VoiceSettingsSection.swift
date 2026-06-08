@@ -23,11 +23,22 @@ struct VoiceSettingsSection: View {
 
   var body: some View {
     Section {
-      gatedToggle(
-        "Use neural voice",
-        isOn: $useKokoro,
-        hint: "When off, narration uses the accessibility voice below."
-      )
+      VStack(alignment: .leading, spacing: 8) {
+        gatedToggle(
+          "Use neural voice",
+          isOn: $useKokoro,
+          hint: "When off, narration uses the accessibility voice below."
+        )
+        // Neural inference leans on the ANE; on pre-iOS 26 systems (older
+        // silicon, less RAM) cold-load and synthesis can drag. A newer OS
+        // implies newer hardware, so the caveat only earns its place below 26.
+        if #unavailable(iOS 26) {
+          Text("Neural voices may perform poorly on older devices.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
 
       // Always reachable, even when neural is locked or off, so anyone can open
       // it and audition every voice. The chosen voice narrates only once neural
@@ -89,7 +100,7 @@ struct VoiceSettingsSection: View {
       }
     } header: {
       Text("Voice")
-    } 
+    }
   }
 
   /// A toggle for a paid voice feature. When unlocked it's a normal `Toggle`;
