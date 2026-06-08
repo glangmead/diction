@@ -89,15 +89,7 @@ struct VoiceSettingsSection: View {
       }
     } header: {
       Text("Voice")
-    } footer: {
-      Text(
-        """
-        Neural voice is on-device TTS (recent devices; the simulator uses the \
-        accessibility voice). The accessibility voice is iOS's built-in speech, \
-        used when the neural voice is off or unavailable.
-        """
-      )
-    }
+    } 
   }
 
   /// A toggle for a paid voice feature. When unlocked it's a normal `Toggle`;
@@ -154,6 +146,10 @@ struct VoiceSettingsSection: View {
     guard let voice = AVSpeechSynthesisVoice(identifier: voiceId) else {
       return "System Default"
     }
-    return "\(voice.name) (\(voice.quality.label))"
+    // iOS bakes the quality into the display name for Enhanced/Premium voices
+    // (e.g. "Samantha (Enhanced)"), so only append our own label when it's absent.
+    let suffix = "(\(voice.quality.label))"
+    if voice.name.hasSuffix(suffix) { return voice.name }
+    return "\(voice.name) \(suffix)"
   }
 }

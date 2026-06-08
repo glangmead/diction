@@ -12,7 +12,9 @@ struct LibraryStatusPreview: View {
   @State private var windows: [GridWindowSnapshot] = []
 
   /// Compact preview cap — a row shows a small status, not the live reading size.
-  private static let previewFontSize: CGFloat = 11
+  /// Anchored to the caption text style (12 pt at default Dynamic Type) so it stays
+  /// semantic and scales with the user's text-size setting, like the in-game bar.
+  @ScaledMetric(relativeTo: .caption) private var previewFontSize: CGFloat = 12
 
   var body: some View {
     // The VStack is always present (empty → zero-size) so `.task` runs and loads
@@ -20,7 +22,7 @@ struct LibraryStatusPreview: View {
     // row width and `GridReflow` compacts the wide saved padding.
     VStack(spacing: 0) {
       ForEach(windows) { window in
-        StatusWindowView(window: window, maxFontSizeOverride: Self.previewFontSize, showsSeparator: false)
+        StatusWindowView(window: window, maxFontSizeOverride: previewFontSize, showsSeparator: false)
       }
     }
     .clipShape(.rect(cornerRadius: 6))

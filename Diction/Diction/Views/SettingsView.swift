@@ -16,7 +16,9 @@ struct SettingsView: View {
   @AppStorage("readingTextSize") private var readingTextSize = ReadingTextSize.medium.rawValue
   /// Diagnostic: log the ASR post-processing (heard words, per-word candidates,
   /// recovery/correction decisions) to the console.
+#if DEBUG
   @AppStorage("logSpeechInterventions") private var logSpeechInterventions = false
+#endif
   /// The paywall presented by the gated voice toggles. Owned here, on the stable
   /// NavigationStack content, rather than on `VoiceSettingsSection`'s `Section` —
   /// a sheet anchored to a `Section` is torn down on re-render and takes the
@@ -65,12 +67,15 @@ struct SettingsView: View {
       VoiceSettingsSection(onRequestUnlock: { showingPaywall = true })
       accessibilityVoicesSection
       readingTextSection
+#if DEBUG
       diagnosticsSection
+#endif
     }
   }
 
   // MARK: - Diagnostics
 
+#if DEBUG
   private var diagnosticsSection: some View {
     Section {
       Toggle("Log speech interventions", isOn: $logSpeechInterventions)
@@ -81,6 +86,7 @@ struct SettingsView: View {
         + "recovery/correction decisions — to the console.")
     }
   }
+#endif
 
   // MARK: - Reading text section
 
@@ -152,8 +158,6 @@ struct SettingsView: View {
       }
     } header: {
       Text("About Accessibility Voices")
-    } footer: {
-      Text("iOS does not allow apps to install voices directly; the Settings app handles the download.")
     }
   }
 

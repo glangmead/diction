@@ -23,7 +23,7 @@ struct LibraryUnlockRow: View {
 
   private var prompt: String {
     if let price = store.product?.displayPrice {
-      return "Unlock voice features — \(price)"
+      return "Unlock voice features"
     }
     return "Unlock voice features"
   }

@@ -45,7 +45,6 @@ struct UnlockSettingsRow: View {
     } footer: {
       Text(
         """
-        Everything else is free — add any game and play with the keyboard. \
         Unlock to narrate with premium neural voices and to play by speaking \
         your commands.
         """
