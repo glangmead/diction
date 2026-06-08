@@ -184,7 +184,7 @@ final class SpeechRecognizer {
     // rather than crash; narration and typed input still work.
     guard format.sampleRate > 0, format.channelCount > 0 else {
       let desc = "\(format.sampleRate)Hz/\(format.channelCount)ch"
-      FileHandle.standardError.write(Data("[diction-rec] invalid mic format \(desc); listening off\n".utf8))
+      DiagnosticsLog.micFormatError(desc)
       errorMessage = "Microphone input is unavailable on this device."
       isListening = false
       return
@@ -235,24 +235,22 @@ final class SpeechRecognizer {
 
   /// Trace every finalization that carried text (or reached a final result), so a
   /// dropped utterance is visible whichever branch it took: a transient error, or
-  /// an empty/short final result that silently delivers nothing. Gated by the same
-  /// "Log speech interventions" toggle as the post-processor trace. Idle no-speech
-  /// error cycles (no text, not final) are skipped so the trace isn't drowned.
-  /// A `→ deliver` line is followed by a `[diction-asr]` line; `→ drop` is not.
+  /// an empty/short final result that silently delivers nothing. Always-on (a
+  /// final result at `.notice`, an error at `.error`) so it survives in `OSLogStore`
+  /// for the in-app diagnostics export. Idle no-speech error cycles (no text, not
+  /// final) are skipped so the trace isn't drowned. See `DiagnosticsLog`.
   private func logCycleEnd(terminus: Terminus, isFinal: Bool, hasText: Bool, text: String, deliver: Bool) {
-    guard UserDefaults.standard.bool(forKey: "logSpeechInterventions") else { return }
     guard hasText || isFinal else { return }
-    let cause: String
     switch terminus {
     case .finalResult:
-      cause = "final"
+      DiagnosticsLog.cycleEnd(
+        cause: "final", endpointed: endpointed, delivered: deliver, command: text)
     case .failed(let error):
       let nsError = error as NSError
-      cause = "error \(nsError.domain) \(nsError.code)"
+      DiagnosticsLog.cycleEndError(
+        cause: "error \(nsError.domain) \(nsError.code)",
+        endpointed: endpointed, delivered: deliver, command: text)
     }
-    let msg = "[diction-rec] cycle end (\(cause)) endpointed=\(endpointed) " +
-      "hasText=\(hasText) text=\"\(text)\" → \(deliver ? "deliver" : "drop")\n"
-    FileHandle.standardError.write(Data(msg.utf8))
   }
 
   /// Cancels any in-flight silence timer and starts a new one. When it fires

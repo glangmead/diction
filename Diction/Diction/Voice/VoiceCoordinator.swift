@@ -110,13 +110,16 @@ final class VoiceCoordinator {
   private func postProcess(_ utterance: RecognizedUtterance) -> String {
     var known = Set(speechProfile.asr.vocabulary.map { $0.lowercased() })
     if let session { known.formUnion(session.dictionary.map { $0.lowercased() }) }
-    // Optional diagnostic trace (Settings → "Log speech interventions"): shows the
-    // heard words, each word's candidates, and the recovery/correction decisions.
+    // Verbose per-word trace (heard words, candidates, recovery/correction
+    // decisions): live-only at `.debug`, gated by the DEBUG "Log speech
+    // interventions" toggle. The net result is logged always-on below.
     let log: ((String) -> Void)? = UserDefaults.standard.bool(forKey: "logSpeechInterventions")
-      ? { FileHandle.standardError.write(Data("[diction-asr] \($0)\n".utf8)) }
+      ? { DiagnosticsLog.verboseTrace($0) }
       : nil
-    return RecognitionPostProcessor(interventions: speechProfile.asr)
+    let result = RecognitionPostProcessor(interventions: speechProfile.asr)
       .process(utterance, knownWords: known, log: log)
+    DiagnosticsLog.postProcess(heard: utterance.best, result: result)
+    return result
   }
 
   // MARK: - Internal state
@@ -214,10 +217,23 @@ final class VoiceCoordinator {
     // Any fresh input dismisses a showing readout — a new command supersedes it,
     // and a game command shouldn't leave a stale overlay floating over the reply.
     activeReadout = nil
-    switch Self.decide(text: text, wakeWord: wakeWord, isNarrating: synthesizer.isSpeaking) {
+    let decision = Self.decide(text: text, wakeWord: wakeWord, isNarrating: synthesizer.isSpeaking)
+    // Always-on breadcrumb: why an input was routed to the game, a coordinator
+    // command, or ignored — the trail that explains a command that never executed.
+    DiagnosticsLog.dispatchDecision(text: text, decision: Self.describe(decision), fromVoice: fromVoice)
+    switch decision {
     case .coordinator(let command): await handleCoordinator(command)
     case .ignore: return
     case .game: await sendToGame(text: text, fromVoice: fromVoice)
+    }
+  }
+
+  /// A short, log-safe description of a routing decision.
+  private static func describe(_ decision: DispatchDecision) -> String {
+    switch decision {
+    case .game: return "game"
+    case .ignore: return "ignore"
+    case .coordinator(let command): return "coordinator(\(command))"
     }
   }
 

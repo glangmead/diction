@@ -25,6 +25,12 @@ struct SettingsView: View {
   /// Settings sheet with it.
   @State private var showingPaywall = false
 
+  /// In-flight state for the diagnostics export, and the file it produced (revealed
+  /// as a share row once ready). Voice issues are intermittent, so the user
+  /// reproduces, then exports a recent on-device activity log to send to support.
+  @State private var isExportingDiagnostics = false
+  @State private var exportedLogURL: URL?
+
   /// Count of currently-installed Premium voices, used to surface whether
   /// the user has installed any of Apple's higher-quality voices.
   private let installedPremiumCount: Int = AVSpeechSynthesisVoice.speechVoices()
@@ -67,6 +73,7 @@ struct SettingsView: View {
       VoiceSettingsSection(onRequestUnlock: { showingPaywall = true })
       accessibilityVoicesSection
       readingTextSection
+      exportDiagnosticsSection
 #if DEBUG
       diagnosticsSection
 #endif
@@ -75,15 +82,54 @@ struct SettingsView: View {
 
   // MARK: - Diagnostics
 
+  /// Release-visible: produce a recent activity log and share it (Mail / AirDrop /
+  /// Files). The file is generated on demand so it captures the latest run, then
+  /// revealed as a `ShareLink` row. See `DiagnosticsExport`.
+  private var exportDiagnosticsSection: some View {
+    Section {
+      Button {
+        isExportingDiagnostics = true
+        Task {
+          defer { isExportingDiagnostics = false }
+          let url = try? await DiagnosticsExport.makeLogFile()
+          exportedLogURL = url
+          // The share row appears asynchronously below; announce it so a VoiceOver
+          // user knows the export finished and where to go next.
+          AccessibilityNotification.Announcement(
+            url == nil ? "Couldn't prepare the activity log." : "Activity log ready to share."
+          ).post()
+        }
+      } label: {
+        HStack {
+          Text("Export Diagnostics")
+          Spacer()
+          if isExportingDiagnostics { ProgressView() }
+        }
+      }
+      .disabled(isExportingDiagnostics)
+      .accessibilityValue(isExportingDiagnostics ? "Preparing" : "")
+      .accessibilityHint("Prepares a recent activity log you can share with support.")
+      if let exportedLogURL {
+        ShareLink("Share diagnostics log", item: exportedLogURL)
+      }
+    } header: {
+      Text("Diagnostics")
+    } footer: {
+      Text("If something isn't working right (a spoken command ignored, narration silent, etc.), "
+        + "reproduce it, then export a recent activity log to send to support.")
+    }
+  }
+
 #if DEBUG
   private var diagnosticsSection: some View {
     Section {
       Toggle("Log speech interventions", isOn: $logSpeechInterventions)
     } header: {
-      Text("Diagnostics")
+      Text("Developer logging")
     } footer: {
-      Text("Writes ASR recovery details — heard words, each word's candidates, and "
-        + "recovery/correction decisions — to the console.")
+      Text("Streams verbose ASR tracing — heard words, each word's candidates, and "
+        + "recovery/correction decisions — to the live console. Not included in "
+        + "exported diagnostics.")
     }
   }
 #endif
