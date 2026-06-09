@@ -51,10 +51,14 @@ nonisolated struct IFDBSearchResult: Identifiable, Sendable, Codable, Hashable {
   var ratingText: String? { starRatingText(starRating) }
 }
 
-/// A resolved, directly-downloadable story file for a game.
+/// A resolved story-file download for a game.
 nonisolated struct IFDBDownload: Sendable, Equatable {
   var url: URL
   var format: StoryFormat
+  /// True when `url` is a `.zip` to extract a story file from (`ZipStoryExtractor`)
+  /// rather than a ready-to-run story file. Many free IF games are only offered
+  /// zipped on the IF Archive.
+  var isArchive: Bool = false
 }
 
 /// Talks to the IFDB public API.
@@ -125,13 +129,27 @@ actor IFDBClient {
   /// URL to `StoryFileManager` (which dedups and copies it into the library under a
   /// unique name) and is responsible for removing the temp directory afterward.
   func downloadGame(_ download: IFDBDownload, title: String) async throws -> URL {
-    let ext = download.url.pathExtension.isEmpty ? "z5" : download.url.pathExtension
     let safeTitle = title
       .replacingOccurrences(of: "/", with: "-")
       .replacingOccurrences(of: ":", with: "-")
     let tempDir = FileManager.default.temporaryDirectory
       .appendingPathComponent("ifdb-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+    if download.isArchive {
+      // The link is a zip; pull the story file out of it. Game zips are small, so we
+      // hold the archive in memory and extract just the one file we need.
+      let (data, response) = try await session.data(from: download.url)
+      try Self.ensureSuccess(response)
+      let story = try ZipStoryExtractor.storyFile(in: data)
+      let ext = (story.name as NSString).pathExtension.isEmpty
+        ? "z5" : (story.name as NSString).pathExtension
+      let destination = tempDir.appendingPathComponent("\(safeTitle).\(ext)")
+      try story.data.write(to: destination)
+      return destination
+    }
+
+    let ext = download.url.pathExtension.isEmpty ? "z5" : download.url.pathExtension
     let destination = tempDir.appendingPathComponent("\(safeTitle).\(ext)")
     try await self.download(from: download.url, to: destination)
     return destination

@@ -93,24 +93,37 @@ nonisolated struct IFDBGameDetail: Sendable, Codable {
     return "\(Int((Double(minutes) / 60).rounded())) hr"
   }
 
-  /// The best directly-downloadable Z-machine/Glulx story file.
+  /// The best runnable Z-machine/Glulx download.
   ///
-  /// `downloads.links` lists everything associated with the game — cover art,
-  /// solutions, zipped distributions, online-play links — so we select the
-  /// first link whose `format` is a VM we run (zcode/glulx) and that carries no
-  /// `compression` (the app's `FormatDetector` reads raw header bytes, not
-  /// archives), preferring links marked `isGame`. The chosen URL is upgraded to
-  /// https so App Transport Security doesn't block plain-http IF Archive files.
+  /// `downloads.links` lists everything for the game — cover art, solutions, online
+  /// play, story files — so we keep only links whose `format` is a VM we run
+  /// (zcode/glulx). A bare story file is used as-is; a `zip` is accepted too and
+  /// extracted at download time (`ZipStoryExtractor`), since many free games are only
+  /// offered zipped on the IF Archive. Other archive schemes (rar, tar, …) are
+  /// skipped — we can't open them. Preference order: a bare game-flagged file, any
+  /// bare file, a zipped game-flagged file, any zipped file — so we only unzip when
+  /// nothing is ready to run. The chosen URL is upgraded to https so App Transport
+  /// Security doesn't block plain-http IF Archive files.
   var playableDownload: IFDBDownload? {
     let links = ifdb?.downloads?.links ?? []
     let runnable = links.compactMap { link -> (isGame: Bool, download: IFDBDownload)? in
-      guard link.compression == nil,
-            let raw = link.url,
+      guard let raw = link.url,
             let url = URL(string: raw),
             let format = ifictionStoryFormat(link.format ?? "") else { return nil }
-      return (link.isGame == true, IFDBDownload(url: httpsUpgraded(url), format: format))
+      let isArchive: Bool
+      switch (link.compression ?? "").lowercased() {
+      case "": isArchive = false
+      case "zip": isArchive = true
+      default: return nil   // an archive scheme we can't extract
+      }
+      return (link.isGame == true, IFDBDownload(url: httpsUpgraded(url), format: format, isArchive: isArchive))
     }
-    return (runnable.first { $0.isGame } ?? runnable.first)?.download
+    // Sequential rather than a `??` chain of optional-chained closures, which trips
+    // the Swift type-checker's time budget.
+    if let pick = runnable.first(where: { $0.isGame && !$0.download.isArchive }) { return pick.download }
+    if let pick = runnable.first(where: { !$0.download.isArchive }) { return pick.download }
+    if let pick = runnable.first(where: { $0.isGame }) { return pick.download }
+    return runnable.first?.download
   }
 
   /// Catalog metadata to persist alongside a downloaded game. IFDB has no short

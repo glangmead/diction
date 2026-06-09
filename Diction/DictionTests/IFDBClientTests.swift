@@ -120,16 +120,31 @@ func resolvesGlulx() throws {
   #expect(download.format == .glulx)
 }
 
-@Test("Returns nil when no runnable, uncompressed file exists")
+@Test("Returns nil when nothing runnable exists (and skips archive schemes we can't open)")
 func noPlayableFile() throws {
   let json = """
   {"ifdb": {"downloads": {"links": [
     {"url": "https://example.org/game.gam", "isGame": true, "format": "tads2"},
-    {"url": "http://example.org/zork.z5", "isGame": true, "format": "zcode", "compression": "zip"}
+    {"url": "https://example.org/walkthrough.txt", "format": "text"},
+    {"url": "https://example.org/zork.z5", "isGame": true, "format": "zcode", "compression": "rar"}
   ]}}}
   """
   let detail = try JSONDecoder().decode(IFDBGameDetail.self, from: Data(json.utf8))
   #expect(detail.playableDownload == nil)
+}
+
+@Test("Accepts a zipped runnable file, flags it as an archive, and upgrades http")
+func resolvesZippedAsArchive() throws {
+  let json = """
+  {"ifdb": {"downloads": {"links": [
+    {"url": "http://archive.org/museo.zip", "isGame": true, "format": "blorb/glulx", "compression": "zip"}
+  ]}}}
+  """
+  let detail = try JSONDecoder().decode(IFDBGameDetail.self, from: Data(json.utf8))
+  let download = try #require(detail.playableDownload)
+  #expect(download.url.absoluteString == "https://archive.org/museo.zip")
+  #expect(download.format == .glulx)
+  #expect(download.isArchive == true)
 }
 
 @Test("Resolves a Blorb-wrapped Glulx game (IFDB 'blorb/glulx'), skipping the zip")
