@@ -135,8 +135,7 @@ extension CuratedIFDBList {
           CuratedIFDBGame("The Fire Tower", tuid: "fcm1ikz9ttr6i99a"),
           CuratedIFDBGame("Lieux Communs", tuid: "utd2or64zwqfaa7", annotation: "(French)"),
           CuratedIFDBGame("El Museo de las Consciencias", tuid: "oe62obqziewqgik", annotation: "(Spanish)"),
-          CuratedIFDBGame("Violet", tuid: "4glrrfh7wrp9zz7b"),
-          CuratedIFDBGame("Scents & Semiosis", tuid: "h8lrej4fid9cd3u3")
+          CuratedIFDBGame("Violet", tuid: "4glrrfh7wrp9zz7b")
         ])
       ]
     )
