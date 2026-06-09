@@ -20,6 +20,10 @@ struct VoiceSettingsSection: View {
     AVSpeechUtteranceDefaultSpeechRate
   )
   @AppStorage("wakeWord") private var wakeWord: String = "game"
+  /// "Keep device awake" — when on (default), the app holds the idle timer off while
+  /// it's in the foreground so the screen doesn't dim and lock during a long read or
+  /// hands-free voice session. Applied in `DictionApp`.
+  @AppStorage("keepDeviceAwake") private var keepDeviceAwake: Bool = true
 
   var body: some View {
     Section {
@@ -98,6 +102,9 @@ struct VoiceSettingsSection: View {
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
+
+      Toggle("Keep device awake", isOn: $keepDeviceAwake)
+        .accessibilityHint("Stops the screen from sleeping while the app is open.")
     } header: {
       Text("Voice")
     }

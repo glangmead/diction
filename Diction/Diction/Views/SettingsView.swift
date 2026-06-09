@@ -14,6 +14,10 @@ struct SettingsView: View {
   // Flowing-text font (defaults must match GameView's reading settings).
   @AppStorage("readingTypeface") private var readingTypeface = ReadingTypeface.sansSerif.rawValue
   @AppStorage("readingTextSize") private var readingTextSize = ReadingTextSize.medium.rawValue
+  /// "Speak back my commands" — when on (default), the app reads each command you enter
+  /// back to you before narrating the game's reply. Gates the readback in
+  /// `VoiceCoordinator.sendToGame`.
+  @AppStorage("repeatCommands") private var repeatCommands = true
   /// Diagnostic: log the ASR post-processing (heard words, per-word candidates,
   /// recovery/correction decisions) to the console.
 #if DEBUG
@@ -131,6 +135,9 @@ struct SettingsView: View {
 
   private var readingTextSection: some View {
     Section {
+      Toggle("Speak back my commands", isOn: $repeatCommands)
+        .accessibilityHint("Reads each command you enter back to you before the game's reply.")
+
       Picker("Typeface", selection: $readingTypeface) {
         ForEach(ReadingTypeface.allCases) { typeface in
           Text(typeface.label).tag(typeface.rawValue)

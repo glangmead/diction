@@ -486,6 +486,13 @@ final class VoiceCoordinator {
     "restore", "restart", "load", "load game"
   ]
 
+  /// "Speak back my commands" (Reading Text settings, default on): gates reading the
+  /// player's own command back before the game's reply. Read live so toggling it
+  /// takes effect on the next command.
+  private var repeatsCommands: Bool {
+    UserDefaults.standard.object(forKey: "repeatCommands") as? Bool ?? true
+  }
+
   private func sendToGame(text: String, fromVoice: Bool) async {
     guard let session, let mode = session.inputMode else { return }
 
@@ -508,6 +515,15 @@ final class VoiceCoordinator {
 
     if isStateReset && !responseEntries.isEmpty {
       session.trimTranscript(keepingSuffix: session.transcript.count - session.lastResponseStart)
+    }
+
+    // Read the player's own command back before its result, so an eyes-free player
+    // hears the final command that was actually sent — keyboard autocorrect or ASR
+    // recovery already applied. Gated by "Speak back my commands" (default on). Line
+    // input only: single keys (menus, y/n) would chatter. `speakCommandEcho` uses a
+    // lower pitch (system voice) so the command is audibly distinct from the reply.
+    if shouldNarrate && mode == .line && repeatsCommands {
+      await synthesizer.speakCommandEcho(payload)
     }
 
     if shouldNarrate && !isStateReset {
