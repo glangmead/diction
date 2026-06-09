@@ -54,6 +54,16 @@ final class VoiceCoordinator {
 
   let recognizer = SpeechRecognizer()
   let synthesizer = SpeechSynthesizer()
+  /// User-controllable mic input + output routing, and the source of the
+  /// recognizer's session config. A device or input change reconfigures a live
+  /// recognizer via `onConfigChange` → `reconfigureListeningIfNeeded`.
+  let audioRoute = AudioRouteController()
+
+  init() {
+    audioRoute.onConfigChange = { [weak self] in
+      self?.reconfigureListeningIfNeeded()
+    }
+  }
 
   // MARK: - Wake word
 
@@ -124,6 +134,10 @@ final class VoiceCoordinator {
 
   // MARK: - Internal state
 
+  /// The config the recognizer is currently running under, so a route/input change
+  /// only restarts it when the effective config actually moves. Nil when not listening.
+  private var activeListeningConfig: ListeningSessionConfig?
+
   private var voiceAuthChecked = false
   private var hasNarratedOpening = false
   /// Guards `setListening` against re-entry while its (first-launch) auth
@@ -178,14 +192,41 @@ final class VoiceCoordinator {
         guard !trimmed.isEmpty else { return }
         Task { await self.dispatch(text: trimmed, fromVoice: true) }
       }
-      recognizer.startContinuous { [weak self] in
-        self?.composedContextualStrings() ?? []
-      }
+      startRecognizer()
       narrateOpeningIfNeeded()
     } else {
       isListening = false
       recognizer.stopContinuous()
+      activeListeningConfig = nil
     }
+  }
+
+  /// (Re)start continuous recognition with the current routing config. Factored so
+  /// both the initial mic-on and a mid-session route/input change run the same path.
+  private func startRecognizer() {
+    let config = audioRoute.currentConfig()
+    activeListeningConfig = config
+    recognizer.startContinuous(config: config) { [weak self] in
+      self?.composedContextualStrings() ?? []
+    }
+  }
+
+  /// Restart the recognizer when a route or input change actually moves the session
+  /// config — the user picking a different mic, or AirPods (dis)connecting mid-game.
+  /// Compares against the live config so redundant route-change notifications don't
+  /// churn the engine. No-op when not listening.
+  private func reconfigureListeningIfNeeded() {
+    guard isListening else {
+      DiagnosticsLog.recognizerReconfigure(listening: false, changed: false, action: "skip")
+      return
+    }
+    let fresh = audioRoute.currentConfig()
+    let changed = fresh != activeListeningConfig
+    DiagnosticsLog.recognizerReconfigure(
+      listening: true, changed: changed, action: changed ? "restart" : "skip")
+    guard changed else { return }
+    recognizer.stopContinuous()
+    startRecognizer()
   }
 
   func setSpeaking(_ enabled: Bool) {
@@ -206,6 +247,7 @@ final class VoiceCoordinator {
     recognizer.stopContinuous()
     synthesizer.stop()
     isListening = false
+    activeListeningConfig = nil
   }
 
   // MARK: - Dispatch

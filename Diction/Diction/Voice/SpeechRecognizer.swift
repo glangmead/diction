@@ -54,6 +54,11 @@ final class SpeechRecognizer {
   /// When the current cycle began, to measure its duration on end.
   private var cycleStart: ContinuousClock.Instant?
 
+  /// The audio-session configuration applied by `startEngine` — the routing policy
+  /// (input choice + live output context) from `AudioRouteController`, captured per
+  /// continuous session. Replaced on each `startContinuous`.
+  private var sessionConfig = ListeningSessionConfig.default
+
   init(locale: Locale = Locale(identifier: "en-US")) {
     recognizer = SFSpeechRecognizer(locale: locale)
   }
@@ -73,13 +78,18 @@ final class SpeechRecognizer {
 
   // MARK: - Continuous mode
 
-  /// Enter continuous mode: configure the session, enable voice processing,
-  /// start the engine, and begin the first capture cycle. The provider is
-  /// called fresh at the start of every cycle so biasing adapts to game state.
-  func startContinuous(contextualStringsProvider: @MainActor @escaping () -> [String]) {
+  /// Enter continuous mode: configure the session per `config`, enable voice
+  /// processing (unless the config opts out), start the engine, and begin the
+  /// first capture cycle. The provider is called fresh at the start of every cycle
+  /// so biasing adapts to game state.
+  func startContinuous(
+    config: ListeningSessionConfig,
+    contextualStringsProvider: @MainActor @escaping () -> [String]
+  ) {
     guard !inContinuous else { return }
     inContinuous = true
     consecutiveFastFailures = 0
+    sessionConfig = config
     self.contextualStringsProvider = contextualStringsProvider
     do {
       try startEngine()
@@ -123,23 +133,34 @@ final class SpeechRecognizer {
     errorMessage = nil
 
     let session = AVAudioSession.sharedInstance()
-    // Voice processing supplies echo cancellation; it needs a voice-oriented
-    // mode, not `.measurement` (which strips the processing). VPIO cancels our
-    // own TTS from the mic even though the synthesizer plays outside this engine.
-    try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker])
+    // Routing policy comes from `AudioRouteController` (input choice + live output
+    // context) rather than a fixed `.defaultToSpeaker`, which used to force the
+    // built-in speaker and kick narration off connected AirPods the moment the mic
+    // opened. Voice processing still wants a voice-oriented mode (`.default`, not
+    // `.measurement`); the policy decides the Bluetooth options and the preferred input.
+    try session.setCategory(
+      ListeningSessionConfig.category, mode: sessionConfig.mode, options: sessionConfig.options)
     try session.setActive(true, options: .notifyOthersOnDeactivation)
+    if let uid = sessionConfig.preferredInputUID,
+       let port = session.availableInputs?.first(where: { $0.uid == uid }) {
+      try? session.setPreferredInput(port)
+    }
 
     let engine = AVAudioEngine()
     let input = engine.inputNode
     // Enable echo cancellation BEFORE reading the input format (enabling it
-    // changes the node's format).
+    // changes the node's format). Skipped in the split-device case (Bluetooth A2DP
+    // output + built-in-mic capture) the policy flags: VPIO would force a call
+    // route and there's no real echo path to cancel (narration is in the user's ears).
     //
     // We deliberately do NOT set `voiceProcessingOtherAudioDuckingConfiguration`:
     // the device spike showed VPIO's *default* ducking lowers our narration when
     // the user speaks just enough for the recognizer to finalize the user's
     // command mid-narration. Setting `enableAdvancedDucking: true` (any level)
     // suppressed that ducking entirely, so the user's barge-in never finalized.
-    try input.setVoiceProcessingEnabled(true)
+    if sessionConfig.enableVoiceProcessing {
+      try input.setVoiceProcessingEnabled(true)
+    }
 
     // NOTE: do NOT try to silence the `auou/vpio render err: -1` log spew by
     // connecting the input to `mainMixerNode` (even at `outputVolume = 0`).

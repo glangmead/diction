@@ -77,6 +77,8 @@ final class SpeechSynthesizer: NSObject {
   /// before every utterance.
   func speak(_ entries: [StyledText]) async {
     guard isAvailable else { return }
+    DiagnosticsLog.ttsEvent("speak-begin", pending: pendingContinuations.count, speaking: isSpeaking)
+    defer { DiagnosticsLog.ttsEvent("speak-end", pending: pendingContinuations.count, speaking: isSpeaking) }
     activatePlaybackSession()
     isStopped = false
     if useKokoro {
@@ -132,6 +134,7 @@ final class SpeechSynthesizer: NSObject {
       continuation.resume()
     }
     pendingContinuations.removeAll()
+    DiagnosticsLog.ttsEvent("stop", pending: pendingContinuations.count, speaking: isSpeaking)
   }
 
   /// Kick the Kokoro model load early (cold start ~2-3s) so the opening
@@ -195,6 +198,7 @@ final class SpeechSynthesizer: NSObject {
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       pendingContinuations.append(continuation)
       isSpeaking = true
+      DiagnosticsLog.ttsEvent("enqueue", pending: pendingContinuations.count, speaking: isSpeaking)
       synthesizer.speak(utterance)
     }
   }
@@ -261,7 +265,7 @@ final class SpeechSynthesizer: NSObject {
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private func didFinishUtterance() {
+  private func didFinishUtterance(_ cause: String) {
     if let next = pendingContinuations.first {
       pendingContinuations.removeFirst()
       next.resume()
@@ -269,6 +273,7 @@ final class SpeechSynthesizer: NSObject {
     if pendingContinuations.isEmpty {
       isSpeaking = false
     }
+    DiagnosticsLog.ttsEvent(cause, pending: pendingContinuations.count, speaking: isSpeaking)
   }
 }
 
@@ -278,7 +283,7 @@ extension SpeechSynthesizer: AVSpeechSynthesizerDelegate {
     didFinish utterance: AVSpeechUtterance
   ) {
     Task { @MainActor in
-      didFinishUtterance()
+      didFinishUtterance("didFinish")
     }
   }
 
@@ -287,7 +292,7 @@ extension SpeechSynthesizer: AVSpeechSynthesizerDelegate {
     didCancel utterance: AVSpeechUtterance
   ) {
     Task { @MainActor in
-      didFinishUtterance()
+      didFinishUtterance("didCancel")
     }
   }
 }

@@ -25,6 +25,11 @@ enum DiagnosticsLog {
   static let asr = Logger(subsystem: subsystem, category: "asr")
   /// Command routing (game / coordinator / ignore).
   static let dispatch = Logger(subsystem: subsystem, category: "dispatch")
+  /// Audio route changes and recognizer reconfiguration. Probe for the wedged-
+  /// narration investigation: a route change deactivating the session under TTS.
+  static let route = Logger(subsystem: subsystem, category: "route")
+  /// System-TTS narration state (continuation accounting), same investigation.
+  static let tts = Logger(subsystem: subsystem, category: "tts")
 
   // MARK: - Breadcrumbs (always-on, `.notice` / `.error`)
 
@@ -65,6 +70,32 @@ enum DiagnosticsLog {
   /// The mic input came up with a degenerate format (no capture possible).
   static func micFormatError(_ description: String) {
     asr.error("invalid mic format \(description, privacy: .public); listening off")
+  }
+
+  /// A system audio route change: its reason and the resolved output context. Probe
+  /// for whether a route change fires mid-narration (the suspected wedge trigger).
+  static func routeChange(reason: String, output: String) {
+    route.notice("route change reason=\(reason, privacy: .public) output=\(output, privacy: .public)")
+  }
+
+  /// The recognizer reconfigure decision on a route/input change: whether listening,
+  /// whether the session config moved, and the action taken. A `restart` here while
+  /// narration is in flight is the suspected trigger for the leaked TTS continuation.
+  static func recognizerReconfigure(listening: Bool, changed: Bool, action: String) {
+    route.notice("""
+      reconfigure listening=\(listening, privacy: .public) changed=\(changed, privacy: .public) \
+      action=\(action, privacy: .public)
+      """)
+  }
+
+  /// A narration-state transition with the pending-continuation depth. An `enqueue`
+  /// (or `speak-begin`) with no matching `didFinish`/`didCancel` (or `speak-end`) is
+  /// the leaked continuation that wedges `isSpeaking` true.
+  static func ttsEvent(_ event: String, pending: Int, speaking: Bool) {
+    tts.notice("""
+      \(event, privacy: .public) pending=\(pending, privacy: .public) \
+      speaking=\(speaking, privacy: .public)
+      """)
   }
 
   /// A line of the verbose post-processor trace. `.debug`, so it's live-only and

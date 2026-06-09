@@ -46,6 +46,8 @@ struct GameView: View {
   /// is reachable via the picker once open.
   @State private var settingsTab: SettingsTab = .settings
   @State private var showingResetConfirm = false
+  /// Presents the output-route popover from the speaker button's hold menu.
+  @State private var showingOutputRoute = false
   /// Bumped to restart the game from scratch: the load `.task` is keyed on it,
   /// so changing it re-runs the load against a freshly created session.
   @State private var reloadToken = 0
@@ -224,21 +226,28 @@ struct GameView: View {
     .accessibilityLabel("Settings")
   }
 
-  /// Voice input is a paid feature. Unlocked: a live toggle that flips
-  /// `voiceInput` (mirrored by the Settings toggle), with the recognizer driven
-  /// from it in `.onChange` below. Locked: a disabled-looking mic that opens the
-  /// paywall on tap.
+  /// Voice input is a paid feature. Unlocked: a tap toggles `voiceInput` (mirrored
+  /// by the Settings toggle, recognizer driven from it in `.onChange`), and a
+  /// press-and-hold opens a menu to pick the microphone input — the corner chevron
+  /// advertises that menu. Locked: a disabled-looking mic that opens the paywall.
   @ViewBuilder
   private var micToggle: some View {
     if store.isFullVersion {
-      Button {
-        voiceInput.toggle()
+      Menu {
+        Picker("Microphone", selection: micInputBinding) {
+          Text("Automatic").tag(AudioInputChoice.automatic)
+          ForEach(coordinator.audioRoute.availableInputs) { option in
+            Text(option.name)
+              .tag(AudioInputChoice.port(uid: option.id, portType: option.portType))
+          }
+        }
       } label: {
-        Image(systemName: coordinator.isListening ? "mic.fill" : "mic.slash")
-          .foregroundStyle(coordinator.isListening ? .blue : .gray)
+        micIcon
+      } primaryAction: {
+        voiceInput.toggle()
       }
       .accessibilityLabel(coordinator.isListening ? "Stop listening" : "Start listening")
-      .accessibilityHint("Whether the app listens to your voice for commands.")
+      .accessibilityHint("Double-tap toggles listening; the menu chooses the microphone input.")
     } else {
       Button {
         showingPaywall = true
@@ -251,18 +260,74 @@ struct GameView: View {
     }
   }
 
+  /// The mic glyph with a corner chevron marking the press-and-hold input menu.
+  private var micIcon: some View {
+    Image(systemName: coordinator.isListening ? "mic.fill" : "mic.slash")
+      .foregroundStyle(coordinator.isListening ? .blue : .gray)
+      .overlay(alignment: .bottomTrailing) { menuChevron }
+  }
+
+  /// Speaker (narration on/off). A tap toggles narration; a press-and-hold opens a
+  /// menu showing the current output and a "Choose Output…" entry. The system route
+  /// picker (`AVRoutePickerView`) can't live inside a `Menu`, so that entry presents
+  /// it in a popover. Matches the mic's tap/hold model; the corner chevron advertises it.
   private var speakerToggle: some View {
-    Button {
-      coordinator.setSpeaking(!coordinator.isSpeaking)
+    Menu {
+      Section(speakerOutputSectionTitle) {
+        Button {
+          showingOutputRoute = true
+        } label: {
+          Label("Choose Output…", systemImage: "airplayaudio")
+        }
+      }
     } label: {
-      Image(systemName: coordinator.isSpeaking ? "speaker.wave.2.fill" : "speaker.slash")
-        .foregroundStyle(coordinator.isSpeaking ? .blue : .gray)
+      speakerIcon
+    } primaryAction: {
+      coordinator.setSpeaking(!coordinator.isSpeaking)
     }
-    .accessibilityLabel(coordinator.isSpeaking ? "Mute narration" : "Unmute narration")
-    .accessibilityHint("Whether the app reads game responses aloud. Muting stops the current sentence.")
-    // Narration screeches through the Simulator's audio path, so the toggle is
+    // Narration screeches through the Simulator's audio path, so the control is
     // disabled (and off) there; always enabled on a real device.
     .disabled(!coordinator.synthesizer.isAvailable)
+    .accessibilityLabel(coordinator.isSpeaking ? "Mute narration" : "Unmute narration")
+    .accessibilityHint("Double-tap toggles narration; the menu chooses the audio output.")
+    .popover(isPresented: $showingOutputRoute) {
+      OutputRoutePopover()
+        .environment(coordinator.audioRoute)
+        .presentationCompactAdaptation(.popover)
+    }
+  }
+
+  /// The speaker glyph with a corner chevron marking the press-and-hold output menu.
+  private var speakerIcon: some View {
+    Image(systemName: coordinator.isSpeaking ? "speaker.wave.2.fill" : "speaker.slash")
+      .foregroundStyle(coordinator.isSpeaking ? .blue : .gray)
+      .overlay(alignment: .bottomTrailing) { menuChevron }
+  }
+
+  /// Header for the speaker menu's output section — names the current device when known.
+  private var speakerOutputSectionTitle: String {
+    let name = coordinator.audioRoute.currentOutputName
+    return name.isEmpty ? "Audio output" : "Output: \(name)"
+  }
+
+  /// A small downward chevron badged on a toolbar control's lower-right corner to
+  /// signal a press-and-hold menu. Decorative — the control's own label and menu
+  /// carry the meaning for assistive tech, so it's hidden from them.
+  private var menuChevron: some View {
+    Image(systemName: "chevron.down")
+      .font(.system(size: 9, weight: .semibold))
+      .foregroundStyle(.secondary)
+      .offset(x: 4, y: 3)
+      .accessibilityHidden(true)
+  }
+
+  /// Binds the input picker to the route controller; selecting persists the choice
+  /// and triggers the recognizer reconfigure.
+  private var micInputBinding: Binding<AudioInputChoice> {
+    Binding(
+      get: { coordinator.audioRoute.choice },
+      set: { coordinator.audioRoute.select($0) }
+    )
   }
 
   /// Shown while the neural narration voice loads (the model cold-start can take
