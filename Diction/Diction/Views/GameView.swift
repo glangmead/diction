@@ -56,6 +56,15 @@ struct GameView: View {
   /// the focus-reclaim below can tell an intentional dismiss from the WebView
   /// stealing first-responder on a log tap.
   @State private var programmaticBlur = false
+  /// The measured height of one line of the input font (taken from the stable `>`
+  /// prompt), used to pin the line-input field's height. A `UITextField` reports a
+  /// ~2 pt taller intrinsic height once it holds text than when empty, so a bare
+  /// `TextField` makes the input bar grow the moment a command appears; because the
+  /// bar shares a `VStack(spacing: 0)` with the greedy WebView, that shrinks the
+  /// WebView and slides its bottom-pinned log up for as long as text is present.
+  /// (Device-only — the Simulator's font metrics don't show the padding.) Pinning
+  /// the field to the prompt's line height keeps empty and filled identical.
+  @State private var inputLineHeight: CGFloat?
 
   /// The game surface and its presentation chrome (overlay, toolbar, sheets,
   /// dialog), split from `body` so the full modifier chain stays within the Swift
@@ -423,11 +432,18 @@ struct GameView: View {
       Text(">")
         .font(.system(.body, design: .monospaced))
         .foregroundStyle(.gray)
+        // The prompt is a stable single line of the input font, so its measured
+        // height is the line height to pin the field to (see `inputLineHeight`).
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { inputLineHeight = $0 }
       TextField("", text: $commandText, prompt: narrationPausedPrompt)
         .font(.system(.body, design: .monospaced))
         .foregroundStyle(.gameText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
+        // Pin to the prompt's line height so a filled field doesn't measure ~2 pt
+        // taller than an empty one and grow the bar — which slid the log (see
+        // `inputLineHeight`). nil until first measured, then fixed.
+        .frame(height: inputLineHeight)
         .focused($inputFocused)
         .onSubmit { dispatchTyped(commandText) }
         .submitLabel(.send)
