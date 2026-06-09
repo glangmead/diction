@@ -27,10 +27,17 @@ struct CuratedIFDBGroup: Identifiable {
   var games: [CuratedIFDBGame]
   var id: String { heading ?? "" }
 
-  /// Games sorted by title for display, using locale-aware comparison so
-  /// accented titles (e.g. "Shōgun") collate correctly.
+  /// Games sorted by title for display. The sort ignores a leading article
+  /// (`IFDBTitleSort`) so "The Witness" files under W, and uses locale-aware
+  /// comparison so accented titles (e.g. "Shōgun") collate correctly. The full
+  /// title is a stable tiebreak when two keys match.
   var sortedGames: [CuratedIFDBGame] {
-    games.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    games.sorted { lhs, rhs in
+      let keyOrder = IFDBTitleSort.sortKey(lhs.title)
+        .localizedStandardCompare(IFDBTitleSort.sortKey(rhs.title))
+      if keyOrder != .orderedSame { return keyOrder == .orderedAscending }
+      return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+    }
   }
 }
 

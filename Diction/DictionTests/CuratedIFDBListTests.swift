@@ -50,17 +50,41 @@ func playabilityByGroup() {
   }
 }
 
-@Test("sortedGames orders each group's titles locale-ascending")
-func sortedGamesIsAlphabetical() {
+@Test("sortedGames orders each group by article-stripped title, ascending")
+func sortedGamesIgnoresArticles() {
   for group in CuratedIFDBList.all.sections.flatMap(\.groups) {
-    let titles = group.sortedGames.map(\.title)
-    let expected = titles.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    #expect(titles == expected)
+    let keys = group.sortedGames.map { IFDBTitleSort.sortKey($0.title) }
+    let ascending = keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    #expect(keys == ascending)
   }
 
-  // Article-led titles collate on the literal title: "A Mind…" sorts first.
+  // "A Mind Forever Voyaging" now files under M, so "Adventure" leads the 50 Years group.
   let fiftyYears = CuratedIFDBList.all.sections.last?.groups.first
-  #expect(fiftyYears?.sortedGames.first?.title == "A Mind Forever Voyaging")
+  #expect(fiftyYears?.sortedGames.first?.title == "Adventure")
+}
+
+@Test("Sort key drops a leading the/a/an, whole-word only; foreign articles kept")
+func titleSortKey() {
+  #expect(IFDBTitleSort.sortKey("The Lurking Horror") == "Lurking Horror")
+  #expect(IFDBTitleSort.sortKey("A Mind Forever Voyaging") == "Mind Forever Voyaging")
+  #expect(IFDBTitleSort.sortKey("An Adventure") == "Adventure")
+  #expect(IFDBTitleSort.sortKey("Leather Goddesses of Phobos") == "Leather Goddesses of Phobos")
+  #expect(IFDBTitleSort.sortKey("Lieux Communs") == "Lieux Communs")
+  #expect(IFDBTitleSort.sortKey("Trinity") == "Trinity")
+  #expect(IFDBTitleSort.sortKey("The") == "The")
+  #expect(IFDBTitleSort.sortKey("El Museo de las Consciencias") == "El Museo de las Consciencias")
+}
+
+@Test("A group sorts its articles out of the way, stably")
+func sortedGamesConcreteOrder() {
+  let group = CuratedIFDBGroup(heading: nil, games: [
+    CuratedIFDBGame("The Witness", tuid: "a"),
+    CuratedIFDBGame("Ballyhoo", tuid: "b"),
+    CuratedIFDBGame("A Mind Forever Voyaging", tuid: "c"),
+    CuratedIFDBGame("Wishbringer", tuid: "d")
+  ])
+  #expect(group.sortedGames.map(\.title)
+    == ["Ballyhoo", "A Mind Forever Voyaging", "Wishbringer", "The Witness"])
 }
 
 @Test("Language annotations are attached to the French and Spanish entries")
