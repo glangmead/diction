@@ -20,7 +20,7 @@ struct GameView: View {
   // stylesheet whenever any of them changes.
   @AppStorage("readingTypeface") private var typefaceRaw = ReadingTypeface.sansSerif.rawValue
   @AppStorage("readingTextSize") private var sizeRaw = ReadingTextSize.medium.rawValue
-  /// "Play with my voice" — the persisted mic preference, the single source of
+  /// "Play using my voice" — the persisted mic preference, the single source of
   /// truth for whether the mic is hot. The in-game mic button and the Settings
   /// toggle both write this key; `.onChange` below drives the recognizer from it.
   @AppStorage("voiceInput") private var voiceInput = false

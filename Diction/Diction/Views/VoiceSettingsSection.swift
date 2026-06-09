@@ -79,7 +79,7 @@ struct VoiceSettingsSection: View {
       }
 
       gatedToggle(
-        "Play with my voice",
+        "Play using my voice",
         isOn: $voiceInput,
         hint: "Speak your commands instead of typing."
       )
@@ -153,14 +153,14 @@ struct VoiceSettingsSection: View {
   }
 
   private var currentVoiceLabel: String {
-    if voiceId.isEmpty { return "System Default" }
-    guard let voice = AVSpeechSynthesisVoice(identifier: voiceId) else {
-      return "System Default"
+    // An empty selection means "use the resolved default" — show that voice's name,
+    // not a "System Default" entry the user can't reason about. See VoicePickerView.
+    let installed = SystemVoiceCatalog.installed()
+    let resolvedId = voiceId.isEmpty ? SystemVoiceCatalog.defaultIdentifier(from: installed) : voiceId
+    guard let resolvedId,
+          let voice = installed.first(where: { $0.identifier == resolvedId }) else {
+      return "—"
     }
-    // iOS bakes the quality into the display name for Enhanced/Premium voices
-    // (e.g. "Samantha (Enhanced)"), so only append our own label when it's absent.
-    let suffix = "(\(voice.quality.label))"
-    if voice.name.hasSuffix(suffix) { return voice.name }
-    return "\(voice.name) \(suffix)"
+    return SystemVoiceCatalog.label(for: voice)
   }
 }

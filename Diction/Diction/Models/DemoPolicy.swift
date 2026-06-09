@@ -14,7 +14,7 @@ nonisolated enum DemoPolicy {
   /// toggle.
   static func neuralVoiceUnlocked(fullVersion: Bool) -> Bool { fullVersion }
 
-  /// Speak-to-command ("Play with my voice") requires the unlock.
+  /// Speak-to-command ("Play using my voice") requires the unlock.
   static func voiceInputUnlocked(fullVersion: Bool) -> Bool { fullVersion }
 
   /// Neural narration is active only when the setting is on AND unlocked — so a

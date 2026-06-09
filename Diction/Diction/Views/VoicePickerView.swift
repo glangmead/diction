@@ -1,64 +1,61 @@
 import SwiftUI
 import AVFoundation
+import UIKit
 
-/// Drill-down voice picker grouped by quality (Premium first), with locale
-/// labels so the user can pick an accent. Lives in its own view so the
-/// list scrolls comfortably even when many voices are installed.
+/// Drill-down picker for the system (Apple) narration voice, grouped by language
+/// (English first), each row showing its locale and quality. There is no "system
+/// default" entry — every choice is an explicitly named voice, which is far less
+/// confusing than a default that silently ignores the user's iOS voice settings.
+/// When the user hasn't picked one, the best English voice is highlighted as the
+/// effective selection (see `SystemVoiceCatalog.defaultIdentifier`).
 struct VoicePickerView: View {
   @Binding var selectedVoiceId: String
   @Environment(\.dismiss) private var dismiss
 
-  private let groupedVoices: [VoiceGroup]
+  private let groupedVoices: [SystemVoiceGroup]
+  private let defaultVoiceId: String?
 
   init(selectedVoiceId: Binding<String>) {
     self._selectedVoiceId = selectedVoiceId
-    let englishVoices = AVSpeechSynthesisVoice.speechVoices()
-      .filter { $0.language.hasPrefix("en") }
-    let byQuality = Dictionary(grouping: englishVoices, by: \.quality)
-    // Premium first so the highest-quality options are easiest to find.
-    self.groupedVoices = [
-      AVSpeechSynthesisVoiceQuality.premium,
-      .enhanced,
-      .default
-    ].compactMap { quality in
-      guard let voices = byQuality[quality], !voices.isEmpty else { return nil }
-      return VoiceGroup(
-        quality: quality,
-        voices: voices.sorted { $0.name < $1.name }
-      )
-    }
+    let installed = SystemVoiceCatalog.installed()
+    self.groupedVoices = SystemVoiceCatalog.grouped(installed)
+    self.defaultVoiceId = SystemVoiceCatalog.defaultIdentifier(from: installed)
+  }
+
+  /// The voice currently in effect: the explicit choice, or the resolved default
+  /// when none has been made. Drives the checkmark.
+  private var effectiveSelectedId: String {
+    selectedVoiceId.isEmpty ? (defaultVoiceId ?? "") : selectedVoiceId
   }
 
   var body: some View {
     List {
       Section {
+        Text(Self.explanation)
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
         Button {
-          selectedVoiceId = ""
-          dismiss()
+          if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+          }
         } label: {
-          voiceRowLabel(
-            primary: "System Default",
-            secondary: "Whatever iOS picks for your region",
-            isSelected: selectedVoiceId.isEmpty
-          )
+          Label("Open Settings", systemImage: "gear")
         }
-        .buttonStyle(.plain)
       }
 
       ForEach(groupedVoices) { group in
-        Section(group.quality.label) {
+        Section(group.displayName) {
           ForEach(group.voices, id: \.identifier) { voice in
+            let isSelected = voice.identifier == effectiveSelectedId
             Button {
               selectedVoiceId = voice.identifier
               dismiss()
             } label: {
-              voiceRowLabel(
-                primary: voice.name,
-                secondary: VoicePickerView.localeName(voice.language),
-                isSelected: voice.identifier == selectedVoiceId
-              )
+              voiceRowLabel(primary: SystemVoiceCatalog.label(for: voice), isSelected: isSelected)
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
           }
         }
       }
@@ -67,45 +64,25 @@ struct VoicePickerView: View {
     .navigationBarTitleDisplayMode(.inline)
   }
 
-  private func voiceRowLabel(primary: String, secondary: String, isSelected: Bool) -> some View {
+  private func voiceRowLabel(primary: String, isSelected: Bool) -> some View {
     HStack {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(primary)
-          .foregroundStyle(.primary)
-        Text(secondary)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
+      Text(primary)
+        .foregroundStyle(.primary)
       Spacer()
       if isSelected {
         Image(systemName: "checkmark")
           .foregroundStyle(.tint)
+          .accessibilityHidden(true)   // selection is conveyed by the .isSelected trait
       }
     }
     .contentShape(Rectangle())
   }
 
-  /// Localized display name for a BCP-47 language tag, e.g. "en-AU" →
-  /// "English (Australia)". Falls back to the raw tag if the system can't
-  /// produce a localized name.
-  private static func localeName(_ tag: String) -> String {
-    Locale.current.localizedString(forIdentifier: tag) ?? tag
-  }
-
-  private struct VoiceGroup: Identifiable {
-    let quality: AVSpeechSynthesisVoiceQuality
-    let voices: [AVSpeechSynthesisVoice]
-    var id: Int { quality.rawValue }
-  }
-}
-
-extension AVSpeechSynthesisVoiceQuality {
-  var label: String {
-    switch self {
-    case .default: "Default"
-    case .enhanced: "Enhanced"
-    case .premium: "Premium"
-    @unknown default: "Unknown"
-    }
-  }
+  private static let explanation = """
+  Diction narrates in English, French, and Spanish. iOS includes higher-quality \
+  Enhanced and Premium voices for these that aren't installed by default. To add one, \
+  open Settings → Accessibility → Spoken Content → Voices, download a voice, then \
+  return here and pick it. A newly installed voice may not appear until you reopen \
+  Diction. Siri voices can't be used by apps, so they won't show up here.
+  """
 }

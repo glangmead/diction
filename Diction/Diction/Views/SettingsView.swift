@@ -31,12 +31,6 @@ struct SettingsView: View {
   @State private var isExportingDiagnostics = false
   @State private var exportedLogURL: URL?
 
-  /// Count of currently-installed Premium voices, used to surface whether
-  /// the user has installed any of Apple's higher-quality voices.
-  private let installedPremiumCount: Int = AVSpeechSynthesisVoice.speechVoices()
-    .filter { $0.language.hasPrefix("en") && $0.quality == .premium }
-    .count
-
   var body: some View {
     NavigationStack {
       VStack(spacing: 0) {
@@ -71,7 +65,6 @@ struct SettingsView: View {
     Form {
       UnlockSettingsRow()
       VoiceSettingsSection(onRequestUnlock: { showingPaywall = true })
-      accessibilityVoicesSection
       readingTextSection
       exportDiagnosticsSection
 #if DEBUG
@@ -181,39 +174,4 @@ struct SettingsView: View {
     (ReadingTextSize(rawValue: readingTextSize) ?? .medium).label
   }
 
-  // MARK: - About Accessibility Voices section
-
-  private var accessibilityVoicesSection: some View {
-    Section {
-      LabeledContent("Premium voices installed") {
-        Text("\(installedPremiumCount)")
-          .foregroundStyle(.secondary)
-      }
-
-      Text(accessibilityVoicesExplanation)
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-
-      Button {
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-          UIApplication.shared.open(url)
-        }
-      } label: {
-        Label("Open Settings", systemImage: "gear")
-      }
-    } header: {
-      Text("About Accessibility Voices")
-    }
-  }
-
-  private var accessibilityVoicesExplanation: String {
-    """
-    iOS includes higher-quality 'Enhanced' and 'Premium' voices that aren't \
-    installed by default. To add them: open the Settings app, then go to \
-    Accessibility → Spoken Content → Voices → English. Tap any voice marked \
-    Enhanced or Premium to download it. Once installed, it will appear in \
-    the Accessibility voice picker above.
-    """
-  }
 }

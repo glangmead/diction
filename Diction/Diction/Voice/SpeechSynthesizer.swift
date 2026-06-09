@@ -225,9 +225,29 @@ final class SpeechSynthesizer: NSObject {
     KokoroSpeechEngine.speed(forStoredRate: speechRate)
   }
 
+  private var resolvedDefaultVoiceId: String?
+  private var didResolveDefaultVoice = false
+
+  /// The resolved default voice (best installed English), computed once per run. A
+  /// newly installed voice only appears after an app relaunch anyway (`speechVoices()`
+  /// is stale within a process), so re-enumerating per utterance would buy nothing
+  /// and just sit on the synthesis hot path. See `SystemVoiceCatalog`.
+  private func defaultVoiceId() -> String? {
+    if !didResolveDefaultVoice {
+      resolvedDefaultVoiceId = SystemVoiceCatalog.defaultIdentifier(from: SystemVoiceCatalog.installed())
+      didResolveDefaultVoice = true
+    }
+    return resolvedDefaultVoiceId
+  }
+
   private func selectedVoice() -> AVSpeechSynthesisVoice? {
-    let id = UserDefaults.standard.string(forKey: "speechVoiceId") ?? ""
-    return id.isEmpty ? nil : AVSpeechSynthesisVoice(identifier: id)
+    let stored = UserDefaults.standard.string(forKey: "speechVoiceId") ?? ""
+    // An empty selection resolves to the best installed English voice rather than
+    // leaving the voice nil — nil makes AVSpeech fall back to the device-language
+    // compact voice, which ignores the user's choice and mispronounces English on
+    // a non-English device. See SystemVoiceCatalog.
+    let id = stored.isEmpty ? defaultVoiceId() : stored
+    return id.flatMap { AVSpeechSynthesisVoice(identifier: $0) }
   }
 
   /// Strips leading/trailing whitespace and parser prompt characters (`>`)

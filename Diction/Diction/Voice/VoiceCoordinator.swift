@@ -37,7 +37,7 @@ final class VoiceCoordinator {
   // MARK: - View-observable state
 
   /// Input axis — is the app listening to the user. Off until an owner with
-  /// "Play with my voice" on opens a game (or taps the mic): voice input is a
+  /// "Play using my voice" on opens a game (or taps the mic): voice input is a
   /// paid feature, so it never auto-starts for a free user.
   private(set) var isListening = false
   /// Output axis — does the app speak. Toggling off stops the current sentence.
@@ -147,7 +147,7 @@ final class VoiceCoordinator {
 
   /// Called once when the game view appears. Narration (the accessibility voice)
   /// is free and on by default, so the opening is read regardless of the mic.
-  /// Listening auto-starts only for an owner who turned "Play with my voice" on;
+  /// Listening auto-starts only for an owner who turned "Play using my voice" on;
   /// `setListening` won't fire its own `onChange` on open, so this is the initial
   /// sync.
   func startOnAppear() async {
