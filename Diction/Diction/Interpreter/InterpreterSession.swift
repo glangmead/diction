@@ -2,15 +2,10 @@ import Foundation
 import CryptoKit
 import WebKit
 
-// swiftlint:disable file_length
-// Pitch for the exception: this type owns both RemGlk update ingestion (apply +
-// window/content handling) and resume snapshot capture/restore. Both mutate its
-// `private` state, so they can't move to an extension in another file without
-// widening access and scattering tightly-coupled mutation. ~436 lines; prefer
-// the exception over leaking internals. The same reasoning covers the
-// `type_body_length` disable on the declaration below: the body sits one line
-// over the 250 limit and its only members are this coupled state — nothing
-// extractable without widening access.
+// Layout: the class body holds the observable state and the play API (load /
+// send / snapshot); the same-file extension at the bottom holds RemGlk update
+// ingestion. Both mutate the same `private` state, so the ingestion code can't
+// move to another file without widening access — hence one file, two parts.
 
 /// Bridges the Swift app to a classic-Glk interpreter (ZVM for Z-machine, Quixe
 /// for Glulx, both JavaScript) running inside a headless `WKWebView`, exchanging
@@ -37,7 +32,6 @@ nonisolated struct GridInputCursor: Sendable, Equatable {
 
 @Observable
 @MainActor
-// swiftlint:disable:next type_body_length
 final class InterpreterSession {
   /// Output entries appended over the course of play, in order.
   private(set) var transcript: [StyledText] = []
@@ -327,6 +321,13 @@ final class InterpreterSession {
     }
   }
 
+  /// Whether the transcript background is dark, so the bridge lifts the game's
+  /// per-style colours for legibility. Set by the view from the colour scheme;
+  /// flipping it re-lifts the injected colours live.
+  var rendersForDarkBackground = false {
+    didSet { if oldValue != rendersForDarkBackground { host.setDarkBackground(rendersForDarkBackground) } }
+  }
+
   // MARK: - Snapshot (resume)
 
   /// Freeze the session's renderable + protocol state for persistence — the
@@ -368,8 +369,11 @@ final class InterpreterSession {
     secondaryBuffers = snapshot.secondaryBuffers
   }
 
-  // MARK: - Internals
+}
 
+// MARK: - Update ingestion
+
+extension InterpreterSession {
   /// Ingest one settled RemGlk update. The single mutation point for play state,
   /// driven by `load`/`send`; `internal` (not `private`) so tests can feed
   /// updates without a live interpreter.
@@ -447,13 +451,6 @@ final class InterpreterSession {
     default:
       break   // graphics / pair / blank carry no text we render
     }
-  }
-
-  /// Whether the transcript background is dark, so the bridge lifts the game's
-  /// per-style colours for legibility. Set by the view from the colour scheme;
-  /// flipping it re-lifts the injected colours live.
-  var rendersForDarkBackground = false {
-    didSet { if oldValue != rendersForDarkBackground { host.setDarkBackground(rendersForDarkBackground) } }
   }
 
   /// Records a window's type and named-style table, and for grids captures the
