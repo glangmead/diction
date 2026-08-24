@@ -36,7 +36,7 @@ struct NarrationSessionConfig {
   }
 
   /// Set this configuration's category on `session`. Does not activate.
-  func apply(to session: AVAudioSession) throws {
+  func apply(to session: any AudioSessionControlling) throws {
     try session.setCategory(category, mode: mode, options: options)
   }
 }

@@ -26,6 +26,8 @@ final class SpeechRecognizer {
   var onUtterance: ((RecognizedUtterance) -> Void)?
 
   private let recognizer: SFSpeechRecognizer?
+  /// The shared session (injectable so the stop path is testable).
+  private let session: any AudioSessionControlling
   private var audioEngine: AVAudioEngine?
   private var request: SFSpeechAudioBufferRecognitionRequest?
   private var task: SFSpeechRecognitionTask?
@@ -65,8 +67,12 @@ final class SpeechRecognizer {
   /// continuous session. Replaced on each `startContinuous`.
   private var sessionConfig = ListeningSessionConfig.default
 
-  init(locale: Locale = Locale(identifier: "en-US")) {
+  init(
+    locale: Locale = Locale(identifier: "en-US"),
+    session: any AudioSessionControlling = AVAudioSession.sharedInstance()
+  ) {
     recognizer = SFSpeechRecognizer(locale: locale)
+    self.session = session
   }
 
   // MARK: - Authorization
@@ -105,11 +111,12 @@ final class SpeechRecognizer {
       inContinuous = false
       // `startEngine` may have put the session into `.playAndRecord` before it
       // threw; hand it back so narration doesn't inherit a half-configured session.
-      releaseSession()
+      restoreNarrationSession()
     }
   }
 
-  /// Leave continuous mode and release the engine and audio session.
+  /// Leave continuous mode: release the engine and hand the audio session back
+  /// to narration.
   func stopContinuous() {
     inContinuous = false
     contextualStringsProvider = nil
@@ -123,26 +130,23 @@ final class SpeechRecognizer {
     task = nil
     audioEngine?.stop()
     audioEngine = nil
-    releaseSession()
+    restoreNarrationSession()
     isListening = false
   }
 
-  /// Deactivate the shared session and hand it back in the narration
-  /// configuration. Both halves matter:
+  /// Hand the still-active session back in the narration configuration —
+  /// `startEngine` put it into `.playAndRecord`, and only a live recognizer may
+  /// own that (see `NarrationSessionConfig`).
   ///
-  /// - Deactivating: leaving the session active meant a second game's fresh engine
-  ///   enabled voice processing over a still-active session, and its input node
-  ///   came up with an invalid (0 Hz / 0 ch) format — the crash on re-opening a
-  ///   game. Deactivating lets the next `startEngine` re-initialise VPIO cleanly.
-  /// - Restoring the category: `startEngine` put the session into `.playAndRecord`
-  ///   and only a live recognizer may own that — see `NarrationSessionConfig`.
-  ///
-  /// A route change restarts the recognizer (`stopContinuous` then
-  /// `startContinuous`), so the category flips `.playAndRecord` → `.playback` →
-  /// `.playAndRecord`; the extra flip costs one more route-change notification.
-  private func releaseSession() {
-    let session = AVAudioSession.sharedInstance()
-    try? session.setActive(false, options: .notifyOthersOnDeactivation)
+  /// Deliberately does NOT `setActive(false)`: deactivating under a playing
+  /// narrator wedges a neural-voice `AVAudioPlayer` (its finish callback never
+  /// comes), and the post-VPIO output attenuation is cleared only by a category
+  /// change on an *active* session (impl #02 has the device trace). The
+  /// deactivation used to guard against a 0 Hz / 0 ch input format on the next
+  /// engine; the category flip reconfigures the I/O instead, and `beginCycle`
+  /// degrades rather than crashes if that ever recurs. A route change restarts
+  /// the recognizer, so the category flips twice there — one extra notification.
+  private func restoreNarrationSession() {
     try? ListeningSessionConfig.restoredOnStop.apply(to: session)
   }
 
@@ -155,7 +159,6 @@ final class SpeechRecognizer {
     }
     errorMessage = nil
 
-    let session = AVAudioSession.sharedInstance()
     // Routing policy comes from `AudioRouteController` (input choice + live output
     // context) rather than a fixed `.defaultToSpeaker`, which used to force the
     // built-in speaker and kick narration off connected AirPods the moment the mic
