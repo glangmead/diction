@@ -1,14 +1,10 @@
 import SwiftUI
 import UIKit
 
-// swiftlint:disable file_length
-// The central game screen — toolbar, native status bar, the GlkOte WebView, the
-// line/char input bars, theming, input dispatch, and the voice-readout overlay —
-// is one tightly-coupled unit whose state is private to this file, so it sits a
-// hair over the 400-line / 250-body limits. Splitting it would mean exposing that
-// private view state across files, which is worse than the small overage.
-
-// swiftlint:disable:next type_body_length
+// The central game screen: native status bar, the GlkOte WebView, theming, input
+// dispatch, and the voice-readout overlay. The toolbar controls (`GameMicToggle`,
+// `GameSpeakerToggle`, `VoiceLoadingIndicator`) and the input bars (`LineInputBar`,
+// `CharInputBar`) are their own views, fed by bindings and callbacks from here.
 struct GameView: View {
   let storyFile: StoryFile
 
@@ -33,10 +29,6 @@ struct GameView: View {
   @State private var session = InterpreterSession()
   @State private var coordinator = VoiceCoordinator()
   @State private var commandText = ""
-  /// Separate from `commandText` because the char-input field auto-submits
-  /// on every character and we don't want that behavior leaking into the
-  /// line-input field when the mode flips back.
-  @State private var charInputText = ""
   @State private var isLoading = true
   @State private var loadError: String?
   @State private var showingSettings = false
@@ -46,8 +38,6 @@ struct GameView: View {
   /// is reachable via the picker once open.
   @State private var settingsTab: SettingsTab = .settings
   @State private var showingResetConfirm = false
-  /// Presents the output-route popover from the speaker button's hold menu.
-  @State private var showingOutputRoute = false
   /// Bumped to restart the game from scratch: the load `.task` is keyed on it,
   /// so changing it re-runs the load against a freshly created session.
   @State private var reloadToken = 0
@@ -56,20 +46,10 @@ struct GameView: View {
   /// the focus-reclaim below can tell an intentional dismiss from the WebView
   /// stealing first-responder on a log tap.
   @State private var programmaticBlur = false
-  /// The measured height of one line of the input font (taken from the stable `>`
-  /// prompt), used to pin the line-input field's height. A `UITextField` reports a
-  /// ~2 pt taller intrinsic height once it holds text than when empty, so a bare
-  /// `TextField` makes the input bar grow the moment a command appears; because the
-  /// bar shares a `VStack(spacing: 0)` with the greedy WebView, that shrinks the
-  /// WebView and slides its bottom-pinned log up for as long as text is present.
-  /// (Device-only — the Simulator's font metrics don't show the padding.) Pinning
-  /// the field to the prompt's line height keeps empty and filled identical.
-  @State private var inputLineHeight: CGFloat?
 
   /// The game surface and its presentation chrome (overlay, toolbar, sheets,
   /// dialog), split from `body` so the full modifier chain stays within the Swift
-  /// type-checker's time budget — this view's body is large and tightly coupled by
-  /// design (see the file header).
+  /// type-checker's time budget.
   private var gameContent: some View {
     VStack(spacing: 0) {
       statusBar
@@ -97,9 +77,15 @@ struct GameView: View {
     .toolbarBackground(Color(.gameSurface), for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarLeading) { settingsButton }
-      ToolbarItem(placement: .topBarTrailing) { voiceLoadingIndicator }
-      ToolbarItem(placement: .topBarTrailing) { micToggle }
-      ToolbarItem(placement: .topBarTrailing) { speakerToggle }
+      ToolbarItem(placement: .topBarTrailing) {
+        VoiceLoadingIndicator(synthesizer: coordinator.synthesizer)
+      }
+      ToolbarItem(placement: .topBarTrailing) {
+        GameMicToggle(coordinator: coordinator, isAllowed: voiceCommandsAllowed) {
+          showingPaywall = true
+        }
+      }
+      ToolbarItem(placement: .topBarTrailing) { GameSpeakerToggle(coordinator: coordinator) }
       ToolbarItem(placement: .topBarTrailing) { resetButton }
     }
     .sheet(isPresented: $showingSettings) {
@@ -245,135 +231,10 @@ struct GameView: View {
   }
 
   /// Whether voice commands may run in this game: purchased, or a bundled game
-  /// where they are free to try. Read from `body` (via `micToggle`) so the view
+  /// where they are free to try. Read from `body` (via the toolbar) so the view
   /// tracks the store's entitlement.
   private var voiceCommandsAllowed: Bool {
     DemoPolicy.voiceCommandsAllowed(fullVersion: store.isFullVersion, source: storyFile.source)
-  }
-
-  /// Voice commands are a locked feature, free to try in a bundled game. Allowed: a
-  /// tap toggles `voiceInput` (mirrored by the Settings toggle, recognizer driven
-  /// from it in `.onChange`), and a press-and-hold opens a menu to pick the
-  /// microphone input — the corner chevron advertises that menu. Locked: a
-  /// disabled-looking mic that opens the paywall.
-  @ViewBuilder
-  private var micToggle: some View {
-    if voiceCommandsAllowed {
-      Menu {
-        Picker("Microphone", selection: micInputBinding) {
-          Text("Automatic").tag(AudioInputChoice.automatic)
-          ForEach(coordinator.audioRoute.availableInputs) { option in
-            Text(option.name)
-              .tag(AudioInputChoice.port(uid: option.id, portType: option.portType))
-          }
-        }
-      } label: {
-        micIcon
-      } primaryAction: {
-        voiceInput.toggle()
-      }
-      .accessibilityLabel(coordinator.isListening ? "Stop listening" : "Start listening")
-      .accessibilityHint("Double-tap toggles listening; the menu chooses the microphone input.")
-    } else {
-      Button {
-        showingPaywall = true
-      } label: {
-        Image(systemName: "mic.slash")
-          .foregroundStyle(.gray)
-      }
-      .accessibilityLabel("Voice input locked")
-      .accessibilityHint(
-        "Opens the in-app purchase to play by speaking your commands. Free to try in All Things Devours."
-      )
-    }
-  }
-
-  /// The mic glyph with a corner chevron marking the press-and-hold input menu.
-  private var micIcon: some View {
-    Image(systemName: coordinator.isListening ? "mic.fill" : "mic.slash")
-      .foregroundStyle(coordinator.isListening ? .blue : .gray)
-      .overlay(alignment: .bottomTrailing) { menuChevron }
-  }
-
-  /// Speaker (narration on/off). A tap toggles narration; a press-and-hold opens a
-  /// menu showing the current output and a "Choose Output…" entry. The system route
-  /// picker (`AVRoutePickerView`) can't live inside a `Menu`, so that entry presents
-  /// it in a popover. Matches the mic's tap/hold model; the corner chevron advertises it.
-  private var speakerToggle: some View {
-    Menu {
-      Section(speakerOutputSectionTitle) {
-        Button {
-          showingOutputRoute = true
-        } label: {
-          Label("Choose Output…", systemImage: "airplayaudio")
-        }
-      }
-    } label: {
-      speakerIcon
-    } primaryAction: {
-      coordinator.setSpeaking(!coordinator.isSpeaking)
-    }
-    // Narration screeches through the Simulator's audio path, so the control is
-    // disabled (and off) there; always enabled on a real device.
-    .disabled(!coordinator.synthesizer.isAvailable)
-    .accessibilityLabel(coordinator.isSpeaking ? "Mute narration" : "Unmute narration")
-    .accessibilityHint("Double-tap toggles narration; the menu chooses the audio output.")
-    .popover(isPresented: $showingOutputRoute) {
-      OutputRoutePopover()
-        .environment(coordinator.audioRoute)
-        .presentationCompactAdaptation(.popover)
-    }
-  }
-
-  /// The speaker glyph with a corner chevron marking the press-and-hold output menu.
-  private var speakerIcon: some View {
-    Image(systemName: coordinator.isSpeaking ? "speaker.wave.2.fill" : "speaker.slash")
-      .foregroundStyle(coordinator.isSpeaking ? .blue : .gray)
-      .overlay(alignment: .bottomTrailing) { menuChevron }
-  }
-
-  /// Header for the speaker menu's output section — names the current device when known.
-  private var speakerOutputSectionTitle: String {
-    let name = coordinator.audioRoute.currentOutputName
-    return name.isEmpty ? "Audio output" : "Output: \(name)"
-  }
-
-  /// A small downward chevron badged on a toolbar control's lower-right corner to
-  /// signal a press-and-hold menu. Decorative — the control's own label and menu
-  /// carry the meaning for assistive tech, so it's hidden from them.
-  private var menuChevron: some View {
-    Image(systemName: "chevron.down")
-      .font(.system(size: 9, weight: .semibold))
-      .foregroundStyle(.secondary)
-      .offset(x: 4, y: 3)
-      .accessibilityHidden(true)
-  }
-
-  /// Binds the input picker to the route controller; selecting persists the choice
-  /// and triggers the recognizer reconfigure.
-  private var micInputBinding: Binding<AudioInputChoice> {
-    Binding(
-      get: { coordinator.audioRoute.choice },
-      set: { coordinator.audioRoute.select($0) }
-    )
-  }
-
-  /// Shown while the neural narration voice loads (the model cold-start can take
-  /// ~15 s). Collapses to nothing once the voice is ready, fails to load, or
-  /// when the neural path is off.
-  @ViewBuilder
-  private var voiceLoadingIndicator: some View {
-    if coordinator.synthesizer.isPreparingVoice {
-      HStack(spacing: 5) {
-        ProgressView()
-          .controlSize(.small)
-        Text("Loading voice")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Loading narration voice")
-    }
   }
 
   // MARK: - Status windows
@@ -420,20 +281,27 @@ struct GameView: View {
   @ViewBuilder
   private var inputBar: some View {
     if session.inputMode == .char {
-      charInputBar
+      CharInputBar(
+        inputFocused: $inputFocused,
+        narrationPausedText: narrationPausedText,
+        onKey: dispatchTyped
+      )
     } else {
-      lineInputBar
+      LineInputBar(
+        commandText: $commandText,
+        inputFocused: $inputFocused,
+        narrationPausedText: narrationPausedText,
+        onSubmit: { dispatchTyped(commandText) },
+        onDismissKeyboard: dismissKeyboard
+      )
     }
   }
 
-  /// Visual + VoiceOver hint for the single-keypress field.
-  private static let charInputHint = "y / n / 1 / …"
-
   /// The "listening paused" placeholder text, or `nil` when it shouldn't show.
   /// Non-nil only while narration is playing and the user hasn't tapped into
-  /// the field (typing shouldn't be nagged). Read inside `body` via the input
-  /// bars' `prompt:` / `accessibilityValue`, so Observation tracks the reads of
-  /// `synthesizer.isSpeaking` and `inputFocused` and re-renders the bar.
+  /// the field (typing shouldn't be nagged). Read inside `body` when building the
+  /// input bars, so Observation tracks the reads of `synthesizer.isSpeaking` and
+  /// `inputFocused` and re-renders the bar.
   private var narrationPausedText: String? {
     guard NarrationInputPrompt.isVisible(
       isNarrating: coordinator.synthesizer.isSpeaking,
@@ -442,94 +310,12 @@ struct GameView: View {
     return NarrationInputPrompt.message(wakeWord: coordinator.wakeWord)
   }
 
-  private var narrationPausedPrompt: Text? {
-    narrationPausedText.map { Text($0) }
-  }
-
-  private var lineInputBar: some View {
-    HStack(spacing: 8) {
-      Text(">")
-        .font(.system(.body, design: .monospaced))
-        .foregroundStyle(.gray)
-        // The prompt is a stable single line of the input font, so its measured
-        // height is the line height to pin the field to (see `inputLineHeight`).
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { inputLineHeight = $0 }
-      TextField("", text: $commandText, prompt: narrationPausedPrompt)
-        .font(.system(.body, design: .monospaced))
-        .foregroundStyle(.gameText)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        // Pin to the prompt's line height so a filled field doesn't measure ~2 pt
-        // taller than an empty one and grow the bar — which slid the log (see
-        // `inputLineHeight`). nil until first measured, then fixed.
-        .frame(height: inputLineHeight)
-        .focused($inputFocused)
-        .onSubmit { dispatchTyped(commandText) }
-        .submitLabel(.send)
-        .accessibilityLabel("Enter command")
-        .accessibilityValue(narrationPausedText ?? commandText)
-        // VoiceOver / Voice Control equivalent of the swipe-down dismiss below.
-        .accessibilityAction(named: "Hide keyboard") { dismissKeyboard() }
-    }
-    .padding(.horizontal)
-    .padding(.vertical, 8)
-    .background(.gameSurface)
-    // Swipe the input bar down to close the keyboard without submitting. The log
-    // scrolls internally, so there's no outer scrollview for the system's
-    // swipe-to-dismiss; this gesture on the native bar provides it. The minimum
-    // distance leaves taps and typing alone; `programmaticBlur` marks it
-    // intentional so the focus-reclaim doesn't immediately re-open it.
-    .simultaneousGesture(
-      DragGesture(minimumDistance: 20)
-        .onEnded { value in
-          if value.translation.height > 40,
-             value.translation.height > abs(value.translation.width) {
-            dismissKeyboard()
-          }
-        }
-    )
-  }
-
   /// Close the keyboard without submitting; `commandText` is preserved.
+  /// `programmaticBlur` marks the blur intentional so the focus-reclaim in
+  /// `body` doesn't immediately re-open it.
   private func dismissKeyboard() {
     programmaticBlur = true
     inputFocused = false
-  }
-
-  /// Shown when the interpreter is blocked on a single-keypress input
-  /// (`glk_request_char_event`). The field auto-submits each keystroke; "Continue"
-  /// covers "press SPACE to begin"; Return sends a Return keypress so char-driven
-  /// forms (Bureaucracy) can advance to the next field.
-  private var charInputBar: some View {
-    HStack(spacing: 8) {
-      Text("Key:")
-        .font(.system(.body, design: .monospaced))
-        .foregroundStyle(.gray)
-      TextField("", text: $charInputText, prompt: narrationPausedPrompt ?? Text(Self.charInputHint))
-        .font(.system(.body, design: .monospaced))
-        .foregroundStyle(.gameText)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .focused($inputFocused)
-        .submitLabel(.return)
-        .accessibilityLabel("Press a single key")
-        .accessibilityValue(narrationPausedText ?? (charInputText.isEmpty ? Self.charInputHint : charInputText))
-        .onChange(of: charInputText) { _, new in
-          guard let first = new.first else { return }
-          let key = String(first)
-          charInputText = ""
-          dispatchTyped(key)
-        }
-        .onSubmit { dispatchTyped("return") }
-      Button("Continue") {
-        dispatchTyped(" ")
-      }
-      .buttonStyle(.borderedProminent)
-      .accessibilityHint("Sends space; the most common 'press any key' answer.")
-    }
-    .padding(.horizontal)
-    .padding(.vertical, 8)
-    .background(.gameSurface)
   }
 
   // MARK: - Theming
