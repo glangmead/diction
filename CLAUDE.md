@@ -40,7 +40,7 @@ You are a **Senior iOS Engineer** and expert in SwiftUI. Your code must always a
 
 ### Issue tracker
 
-Issues live as markdown files under `docs/tickets/<effort>/`, one file per ticket; `bin/tickets` shows the frontier. Commit ticket and map edits when you make them, in a commit separate from code. GitHub Issues are a public intake only — never write to them. See `docs/agents/issue-tracker.md`.
+Issues live as markdown files under `docs/tickets/<effort>/`, one file per ticket; `bin/tickets` shows the frontier. Commit ticket and map edits — and `CONTEXT.md`, ADRs, and findings under `docs/` — when you make them, in a commit separate from code. GitHub Issues are a public intake only — never write to them. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
