@@ -1,12 +1,13 @@
 # 01 — Free-to-try voice commands in the bundled game
 
 **Type:** feature  
-**Status:** claimed  
+**Status:** resolved  
 **Blocked by:** None  
 **From:** [Free speak-to-command in All Things Devours](../../paywall/issues/01-free-voice-input-in-all-things-devours.md) · [ADR 0001](../../../adr/0001-paywall-gates-voice-features-with-free-to-try-voice-commands.md)  
 **Spec:** [Free-to-try voice commands](../specs/free-to-try-voice-commands.md)  
 **Assignee:** glangmead  
 **Opened:** 2026-08-24  
+**Closed:** 2026-08-24  
 
 ## Task
 
@@ -51,3 +52,18 @@ Implement the whole of the [Free-to-try voice commands](../specs/free-to-try-voi
 ## Comments
 
 ## Answer
+
+_glangmead — 2026-08-24_
+
+Implemented in commit `45f6814` (Free-to-try voice commands in bundled games). Everything in the spec's file list is in that commit; the AboutPane typo fix and the `Resources/minizork.z3` / `zdungeon.z5` deletion had already landed in `54d5e63`.
+
+Deviations from the spec text, on purpose:
+- `AboutPane` mic tip keeps the `_(Full version, or in All Things Devours)_` marker from `54d5e63` rather than dropping it; only "voice input" → "voice commands" changed. Dropping the marker on one of three sibling tips would imply the mic is available everywhere.
+- Added `VoiceCommandGateTests` (gate closed by default; `setListening(true)` refused when the gate denies) on top of the required `DemoPolicyTests` matrix. Caveat: on the test host, speech authorization is also denied, so these tests can't tell a gate refusal from an auth refusal. Making them sharper needs a recognizer seam on `VoiceCoordinator`, which is outside this ticket.
+- New doc comments say "the purchase" / "locked" rather than the spec's "the unlock" / "paid", per CONTEXT.md § Paywall.
+
+Verification:
+- `xcodebuild test`: 280 pass, 1 fail — `MisakiPhonemizerTests.problemCorpus()` (`Frobozz` OOV → empty from the CoreML fallback). Fails identically with this change stashed; pre-existing and unrelated.
+- `swiftlint` clean on every touched file.
+- Simulator (iPhone 17 Pro, iOS 26.4, free state): acceptance 1–6 and 8 pass — Devours auto-listens with the live mic menu; an imported game shows the grey `mic.slash` and opens the paywall with the free-to-try line above Unlock; the in-game mic tap mirrors to the Settings toggle; flipping the toggle from Settings inside the imported game starts no listening; the Settings footnote and locked neural row read as specified. Item 7 (owner via StoreKit test purchase) was not exercised: a `simctl` launch doesn't attach `Configuration.storekit`, so the purchase went to a real Apple Account sign-in. The owner path is the `fullVersion ||` short-circuit plus unchanged `gatedToggle`, covered by the policy matrix.
+
