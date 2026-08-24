@@ -1,12 +1,13 @@
 # 02 — Narration is near-mute after the mic is turned off
 
 **Type:** bug  
-**Status:** claimed  
+**Status:** resolved  
 **Blocked by:** None  
 **From:** bug report by glangmead, 2026-08-24 (on-device, Apple TTS); introduced by commit `f2ccb42` (free narration with the mic off)  
 **Spec:** None — bug; the fix is specified below  
 **Assignee:** glangmead  
 **Opened:** 2026-08-24  
+**Closed:** 2026-08-24  
 
 ## Task
 
@@ -62,3 +63,27 @@ Side benefit: with the mic off the app no longer holds an active record-capable 
 9. Kokoro voice, mic off → unchanged (it already worked, because in-game Kokoro never reconfigures the session; confirm it still doesn't).
 
 ## Comments
+
+## Answer
+
+_glangmead — 2026-08-24_
+
+Implemented in commit `933f41c`.
+
+What changed, against the three fix items:
+
+1. `SpeechRecognizer` — `stopContinuous()` now goes through a new private `releaseSession()`: `setActive(false, .notifyOthersOnDeactivation)` then `setCategory` back to `ListeningSessionConfig.restoredOnStop` (= `NarrationSessionConfig.standard`: `.playback` / `.default` / `[.duckOthers]`). The failed-`startEngine` path in `startContinuous` calls it too, since `startEngine` can set `.playAndRecord` before throwing. The `reconfigureListeningIfNeeded` double-flip is noted in the doc comment. `VoiceCoordinator.tearDown()` clears `isListening` *before* stopping the recognizer so the route-change notification the category flip fires can't restart it.
+2. `SpeechSynthesizer.activatePlaybackSession()` and `KokoroSpeechEngine.ensureSessionForPlayback()` — the `.playAndRecord`-is-compatible check is gone. Both now call the pure `NarrationSessionConfig.shouldApply(recognizerLive:currentCategory:)` = `!recognizerLive && category != .playback`. "Recognizer live" is `SpeechRecognizer.ownsAudioSession` (true from `startContinuous` until `stopContinuous`/failed start), injected as a `@MainActor () -> Bool` closure: `VoiceCoordinator.init` wires it into the synthesizer (via a new `VoiceCoordinator.isRecognizerLive`); for the Kokoro audition — reachable from Settings *inside a game with the mic on* (`GameView` presents `SettingsView`) — a new `EnvironmentValues.isRecognizerLive` key is set by `GameView` on its Settings sheet and read by `KokoroVoicePickerView` into `audition.isRecognizerLive`. From the library it defaults to `{ false }`. The Kokoro `managesSession` flag keeps its meaning (audition configures the session; in-game the synthesizer does it before every pass).
+3. `NarrationSessionConfig` (new, next to `ListeningSessionConfig`) is the one definition of the narration session, with `standard`, `shouldApply`, and `apply(to:)`; the three former literal copies are gone.
+
+Tests (Swift Testing):
+- `NarrationSessionConfigTests` — `standard` is `.playback`/`.default`/`[.duckOthers]`; `shouldApply` matrix: applies when no recognizer is live and the category is `.playAndRecord`/`.soloAmbient`/`.ambient`; skips when already `.playback`; never applies while a recognizer is live, whatever the category.
+- `ListeningSessionConfigTests.restoredOnStopLeavesPlayAndRecord` — the restore config is `.playback` / `.default` / `[.duckOthers]` and its category differs from the listening category (the invariant that clears iOS's post-VPIO gain state). The six existing tests are unchanged.
+- Deviation from the ticket's test list: no `SpeechSynthesizer`-level test with an injected session-mutation closure. `speak`/`speakCommandEcho` no-op on the simulator test host (`isAvailable == false`), so `activatePlaybackSession` isn't reachable through the public interface; the decision it makes is the pure `shouldApply`, which is what's tested, and the method is a two-line application of it.
+
+Verification:
+- `xcodebuild test` through `xcsift`: 285 pass, 1 fail — `MisakiPhonemizerTests.problemCorpus()`, the same pre-existing failure recorded in [ticket 01](01-free-to-try-voice-commands.md). Zero build warnings.
+- `swiftlint` clean on every touched file.
+- **Not verified on device** — acceptance 1–9 need real VPIO hardware and remain to be run by a human. The AirPods case (8) is the one to watch: between listening sessions the session is `.playback`, under which A2DP output is allowed by default, so narration should stay on the AirPods.
+- `/code-review` (standards + spec, HEAD vs. the change): no hard violations, nothing spec-wrong. Acted on: the root-cause story now lives once in `NarrationSessionConfig` and the other comments point there; "mic on" wording replaced with "listening" per CONTEXT.md; the two `recognizer.ownsAudioSession` closures collapsed onto `VoiceCoordinator.isRecognizerLive`; `NarrationSessionConfig` fields are `let` and it is not `Equatable`; the `tearDown` comment no longer claims the reorder is load-bearing (route changes are delivered asynchronously, so either order works). Kept: `ListeningSessionConfig.restoredOnStop` as a named, tested policy even though it aliases `.standard`.
+
