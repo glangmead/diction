@@ -1,11 +1,11 @@
 # 04 — Audit the app bundle size
 
 **Type:** chore  
-**Status:** ready-for-agent  
+**Status:** claimed  
 **Blocked by:** None  
 **From:** request by glangmead, 2026-08-24  
 **Spec:** None — audit; findings go to a doc, fixes become their own tickets  
-**Assignee:** —  
+**Assignee:** glangmead  
 **Opened:** 2026-08-24  
 
 ## Task
