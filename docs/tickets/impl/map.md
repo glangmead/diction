@@ -21,6 +21,12 @@ One flat, global list of implementation tickets for Diction. Decisions are made 
 
 - [Free-to-try voice commands](specs/free-to-try-voice-commands.md) — from [Paywall revisit](../paywall/map.md) and [ADR 0001](../../adr/0001-paywall-gates-voice-features-with-free-to-try-voice-commands.md). One ticket: [Free-to-try voice commands in the bundled game](issues/01-free-to-try-voice-commands.md).
 
+## Bugs
+
+<!-- one bullet per bug ticket; a bug has no spec, its ticket carries the diagnosis and fix -->
+
+- [Narration is near-mute after the mic is turned off](issues/02-mic-off-narration-near-mute.md) — `.playAndRecord` left behind by the recognizer is reused for narration; introduced by `f2ccb42`.
+
 ## Decisions so far
 
 <!-- not used: decisions live in the wayfinder maps -->
