@@ -52,23 +52,35 @@ final class VoiceCoordinator {
   private(set) var activeReadout: VoiceReadout?
 
   // MARK: - Owned services
+  //
+  // Built on first use, not in `init`, so that `GameView`'s `@State` initial
+  // value — which SwiftUI evaluates on every view init and keeps only once — is
+  // a bare allocation for each discarded copy (impl ticket 03). Only the
+  // instance that renders builds the recognizer, synthesizer and route
+  // controller. `@ObservationIgnored`: the references never change, and the
+  // services are observable in their own right.
 
-  let recognizer = SpeechRecognizer()
-  let synthesizer = SpeechSynthesizer()
-  /// User-controllable mic input + output routing, and the source of the
-  /// recognizer's session config. A device or input change reconfigures a live
-  /// recognizer via `onConfigChange` → `reconfigureListeningIfNeeded`.
-  let audioRoute = AudioRouteController()
+  @ObservationIgnored private(set) lazy var recognizer = SpeechRecognizer()
 
-  init() {
-    audioRoute.onConfigChange = { [weak self] in
-      self?.reconfigureListeningIfNeeded()
-    }
+  @ObservationIgnored private(set) lazy var synthesizer: SpeechSynthesizer = {
+    let synthesizer = SpeechSynthesizer()
     // The synthesizer must leave the audio session alone while the recognizer
     // owns it, and learns that from the recognizer — never from the session's
     // category (see `NarrationSessionConfig`).
     synthesizer.isRecognizerLive = { [weak self] in self?.isRecognizerLive ?? false }
-  }
+    return synthesizer
+  }()
+
+  /// User-controllable mic input + output routing, and the source of the
+  /// recognizer's session config. A device or input change reconfigures a live
+  /// recognizer via `onConfigChange` → `reconfigureListeningIfNeeded`.
+  @ObservationIgnored private(set) lazy var audioRoute: AudioRouteController = {
+    let audioRoute = AudioRouteController()
+    audioRoute.onConfigChange = { [weak self] in
+      self?.reconfigureListeningIfNeeded()
+    }
+    return audioRoute
+  }()
 
   /// Whether the recognizer currently owns the shared audio session. Read by
   /// anything that narrates outside this coordinator — the neural-voice audition

@@ -117,8 +117,10 @@ final class InterpreterSession {
 
   /// One interpreter instance per session (per game open). GameView creates a
   /// fresh InterpreterSession for each game, so each gets a fresh webview +
-  /// interpreter — globals never carry across games.
-  private let host = WebInterpreterHost()
+  /// interpreter — globals never carry across games. Lazy so the copies SwiftUI
+  /// discards from `GameView`'s `@State` (impl ticket 03) don't each build — and,
+  /// never torn down, leak — a `WKWebView`.
+  @ObservationIgnored private lazy var host = WebInterpreterHost()
 
   /// The interpreter's WebView, surfaced so the view layer can display GlkOte's
   /// rendered output. Read-only; the session owns the host's lifecycle.
