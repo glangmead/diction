@@ -1,12 +1,13 @@
 # Paywall revisit
 
 **Type:** map  
-**Status:** open  
+**Status:** resolved  
 **Opened:** 2026-08-23  
+**Closed:** 2026-08-24  
 
 ## Destination
 
-_Provisional — confirm at the first grilling._ A decided feature matrix for the single unlock (`com.luminous.diction.full`): what is free, what is paid, and any per-game exceptions — recorded as an ADR under `docs/adr/` and a spec under `docs/tickets/impl/specs/`, ready to slice into build tickets. The effort was opened with one concrete change in mind (free speak-to-command in the bundled game); whatever else "revisit how the paywall works" covers is fog until grilled.
+_Confirmed 2026-08-24, narrowed: the exception plus the language that must change to match._ A decided feature matrix for the single unlock (`com.luminous.diction.full`): what is free, what is paid, and any per-game exceptions — recorded as an ADR under `docs/adr/` and a spec under `docs/tickets/impl/specs/`, ready to slice into build tickets. The effort was opened with one concrete change in mind (free speak-to-command in the bundled game); whatever else "revisit how the paywall works" covers is fog until grilled.
 
 ## Notes
 
@@ -20,12 +21,22 @@ _Provisional — confirm at the first grilling._ A decided feature matrix for th
 
 <!-- the index — one line per closed ticket: enough to judge relevance, then zoom the link for the detail the ticket holds -->
 
+- [Free speak-to-command in All Things Devours](issues/01-free-voice-input-in-all-things-devours.md) — yes: voice commands are free to try in any bundled game (`Source.bundled`), neural stays locked, "Play using my voice" is an ungated preference, wake word ungated, paywall/settings/about copy says so. [ADR 0001](../../adr/0001-paywall-gates-voice-features-with-free-to-try-voice-commands.md) · [spec](../impl/specs/free-to-try-voice-commands.md) · `CONTEXT.md` seeded.
+
+**The way is clear** — no open tickets, no fog. Build from the spec.
+
 ## Not yet specified
 
 <!-- see "Fog of war": in-scope fog you can't ticket yet; graduates as the frontier advances -->
 
-- The rest of "revisit how the paywall works": the user named one exception but opened the effort more broadly. Whether the price, what the unlock covers, the promo placements (library row, settings row, in-game mic), or the one-IAP decision are also on the table is unknown until the first grilling — expect it to graduate into several tickets or none.
+_(empty — the broader "revisit" fog was resolved at the first grilling: the effort is the exception plus matching language; see Out of scope.)_
 
 ## Out of scope
 
 <!-- see "Out of scope": work ruled beyond the destination; closed, never graduates -->
+
+- **Price** — an App Store Connect knob, not a code decision (Q1 of the first grilling).
+- **Two IAPs instead of one** — decided against in June 2026; nothing here reopens it.
+- **Promo-placement changes beyond copy** — `LibraryUnlockRow` stays as it is; only `PaywallView`, `UnlockSettingsRow`, the Settings toggle footer, and `AboutPane` get the free-to-try sentence.
+- **Neural narration free in the bundled game** — rejected in [ADR 0001](../../adr/0001-paywall-gates-voice-features-with-free-to-try-voice-commands.md); would be a fresh effort.
+- **Trimming `SystemVoiceCatalog.supportedLanguageCodes`** (fr/es survive only because of a stale comment about bundled games that don't exist) — a voice-picker question, not a paywall one. The spec fixes the comment only.

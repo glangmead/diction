@@ -19,6 +19,8 @@ One flat, global list of implementation tickets for Diction. Decisions are made 
 
 <!-- one bullet per spec under specs/, linking the map and ADRs it came from -->
 
+- [Free-to-try voice commands](specs/free-to-try-voice-commands.md) — from [Paywall revisit](../paywall/map.md) and [ADR 0001](../../adr/0001-paywall-gates-voice-features-with-free-to-try-voice-commands.md). Not yet sliced.
+
 ## Decisions so far
 
 <!-- not used: decisions live in the wayfinder maps -->

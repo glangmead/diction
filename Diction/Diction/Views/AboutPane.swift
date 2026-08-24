@@ -75,9 +75,9 @@ enum AboutContent {
 
 Play interactive fiction games with your voice, while the device reads the game to you!
 
-The free version narrates with Apple's Acccessibility TTS engine.
+The free version narrates with Apple's Accessibility TTS engine, and lets you use voice commands in the bundled game "All Things Devours."
 
-**Unlock the full version to give voice commands and to use the upgraded neural voice engine.**
+**Unlock the full version to give voice commands in any game, and to use the upgraded neural voice engine.**
 
 Try Find to see a list of classic games that are a click away.
 
@@ -98,9 +98,9 @@ Say or type "game" followed by these commands to issue commands to Diction itsel
 * Double-tap a word in the game log to add it to your input.
 * To add to the Apple voices you have to first visit your device's Settings > Accessibility > Read & Speak > Voices > English > Voice.
 * Tap the speaker icon in the top toolbar to silence the narration. Turn it back on at any time.
-* _(Full version)_ The mic is automatically listening and can tell when you're done talking.
-* _(Full version)_ Mute the mic in the top toolbar to stop giving voice input.
-* _(Full version)_ The recognition favors words in the recent game log, to help with accuracy and to include unusual words and names.
+* _(Full version, or in All Things Devours)_ The mic is automatically listening and can tell when you're done talking.
+* _(Full version, or in All Things Devours)_ Mute the mic in the top toolbar to stop giving voice input.
+* _(Full version, or in All Things Devours)_ The recognition favors words in the recent game log, to help with accuracy and to include unusual words and names.
 
 """
   // swiftlint:enable line_length
