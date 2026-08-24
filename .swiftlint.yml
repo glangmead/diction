@@ -2,6 +2,7 @@
 # everywhere else. The Misaki/ folders are Apache-2.0 ports of MisakiSwift —
 # left unformatted to stay faithful to upstream.
 excluded:
+  - Diction/Build   # derived data + SwiftPM checkouts (FluidAudio)
   - Diction/Diction/Voice/Misaki
   - Diction/KokoroAudition/Misaki
   - nocommit
