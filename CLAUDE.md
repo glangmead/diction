@@ -19,7 +19,7 @@ You are a **Senior iOS Engineer** and expert in SwiftUI. Your code must always a
 - Don't use the words "shape", "clean".
 - NEVER italicize the word "is", as in "the library *is* the app"
 - Always use superpowers and swiftui-pro to work on the code.
-- Do not add docs, plans or specs to git. Put them all in nocommit/docs.
+- Superpowers design docs and plans go in nocommit/docs, not git. The files the `## Agent skills` section below routes into `docs/` (tickets, specs, ADRs, research findings) are tracked.
 - Do not create git branches and do not commit files. I like each project to leave offline changes, which I review and add myself.
 - Review all changes with swift-accessibility-skill to keep the app accessible.
 - Use ios-simulator-skill to review screenshots and test accessibility.
@@ -64,3 +64,21 @@ These are documented in code at the noted files. Read them before touching the l
 - Build after each logical step of a multi-step change to catch compilation errors early.
 - Do not remove commented-out print statements. The user keeps them as debugging landmarks.
 - The user uses Instruments.app for profiling and exports call tree data to text files for analysis. When optimizing, always target the top CPU consumers and verify improvements with before/after data.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as markdown files under `docs/tickets/<effort>/`, one file per ticket; `bin/tickets` shows the frontier. GitHub Issues are a public intake only — never write to them. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, written as a ticket's `**Status:**` value. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Where skills write
+
+`/research` writes its findings file into `docs/`. `/domain-modeling` writes `CONTEXT.md` at the root and ADRs into `docs/adr/`. `/prototype` builds a throwaway file, so put that one under `nocommit/`. Specs, maps, and tickets are markdown files under `docs/tickets/<effort>/`.

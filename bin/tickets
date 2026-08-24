@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Terminal view of the local markdown issue tracker under docs/tickets/.
+
+  bin/tickets            frontier, claimed, and blocked tickets per effort
+  bin/tickets -a         also list resolved and closed tickets
+  bin/tickets --fog      also print the map's "Not yet specified" and "Out of scope"
+  bin/tickets -e NAME    only the effort whose directory name contains NAME
+  bin/tickets -n 33      print one ticket (number), markdown rendered with colour
+  bin/tickets --no-color
+"""
+import argparse, os, pathlib, re, sys, textwrap, shutil
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+TICKETS = ROOT / "docs" / "tickets"
+
+FIELD_RE = re.compile(r"^\*\*(\w[\w ]*):\*\*\s*(.*?)\s*$", re.M)
+NUM_RE = re.compile(r"^(\d+)-")
+H1_RE = re.compile(r"^#\s+(?:(\d+)\s+—\s+)?(.+?)\s*$", re.M)
+OPEN_STATUSES = {"open", "claimed", "needs-triage", "needs-info", "ready-for-agent", "ready-for-human"}
+DONE_STATUSES = {"resolved", "closed", "wontfix"}
+
+
+class C:
+  on = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+  @classmethod
+  def _(cls, code, s): return f"\033[{code}m{s}\033[0m" if cls.on else s
+  @classmethod
+  def bold(cls, s): return cls._("1", s)
+  @classmethod
+  def dim(cls, s): return cls._("2", s)
+  @classmethod
+  def red(cls, s): return cls._("31", s)
+  @classmethod
+  def green(cls, s): return cls._("32", s)
+  @classmethod
+  def yellow(cls, s): return cls._("33", s)
+  @classmethod
+  def blue(cls, s): return cls._("34", s)
+  @classmethod
+  def magenta(cls, s): return cls._("35", s)
+  @classmethod
+  def cyan(cls, s): return cls._("36", s)
+  @classmethod
+  def italic(cls, s): return cls._("3", s)
+  @classmethod
+  def underline(cls, s): return cls._("4", s)
+
+
+TYPE_COLOR = {"research": C.cyan, "prototype": C.magenta, "grilling": C.yellow, "task": C.blue}
+STATUS_COLOR = {"claimed": C.yellow, "resolved": C.dim, "closed": C.dim, "wontfix": C.dim, "blocked": C.red}
+
+
+class Ticket:
+  def __init__(self, path):
+    self.path = path
+    text = path.read_text()
+    m = NUM_RE.match(path.name)
+    self.number = int(m.group(1)) if m else 0
+    h = H1_RE.search(text)
+    self.title = h.group(2) if h else path.stem
+    fields = {k.lower(): v for k, v in FIELD_RE.findall(text.split("\n## ", 1)[0])}
+    self.type = fields.get("type", "task").lower()
+    self.status = fields.get("status", "open").lower()
+    self.assignee = fields.get("assignee", "—")
+    if self.assignee in ("", "—", "none", "-"): self.assignee = None
+    self.opened = fields.get("opened", "")
+    self.closed = fields.get("closed", "")
+    bb = fields.get("blocked by", "")
+    self.blocked_by = [int(n) for n in re.findall(r"(?:\[|^|,\s*)(\d+)\b", bb)] if not bb.lower().startswith("none") else []
+
+  @property
+  def done(self): return self.status in DONE_STATUSES
+  @property
+  def claimed(self): return self.status == "claimed" or (not self.done and self.assignee is not None)
+
+
+class Effort:
+  def __init__(self, d):
+    self.dir = d
+    self.name = d.name
+    self.map_path = d / "map.md"
+    self.map_text = self.map_path.read_text() if self.map_path.exists() else ""
+    h = H1_RE.search(self.map_text)
+    self.title = h.group(2) if h else d.name
+    self.tickets = {}
+    issues = d / "issues"
+    if issues.is_dir():
+      for p in sorted(issues.glob("*.md")):
+        t = Ticket(p)
+        self.tickets[t.number] = t
+
+  def open_blockers(self, t):
+    return [b for b in t.blocked_by if b in self.tickets and not self.tickets[b].done]
+
+  def section(self, name):
+    m = re.search(rf"^## {re.escape(name)}\s*\n(.*?)(?=^## |\Z)", self.map_text, re.M | re.S)
+    if not m: return []
+    body = re.sub(r"<!--.*?-->", "", m.group(1), flags=re.S)
+    return [re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", l[2:].strip()) for l in body.splitlines() if l.startswith("- ")]
+
+
+def width(): return min(shutil.get_terminal_size((100, 20)).columns, 110)
+
+
+CODE_SPAN_RE = re.compile(r"`([^`]+)`")
+LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+ITALIC_RE = re.compile(r"(?<![\w*])[*_](?![\s*_])(.+?)(?<![\s*_])[*_](?![\w*])")
+
+
+def inline(s):
+  """Colour inline markdown; code spans are protected from the other rules."""
+  out = []
+  for i, part in enumerate(CODE_SPAN_RE.split(s)):
+    if i % 2:
+      out.append(C.cyan(part)); continue
+    part = LINK_RE.sub(lambda m: C.blue(C.underline(m.group(1))) + C.dim(f" ({m.group(2)})"), part)
+    part = BOLD_RE.sub(lambda m: C.bold(m.group(1)), part)
+    part = ITALIC_RE.sub(lambda m: C.italic(m.group(1)), part)
+    out.append(part)
+  return "".join(out)
+
+
+def field(key, value):
+  k = key.lower(); v = value
+  if k == "type": v = TYPE_COLOR.get(v.lower(), C.dim)(v)
+  elif k == "status":
+    v = STATUS_COLOR.get(v.lower(), C.green if v.lower() in OPEN_STATUSES else C.dim)(v)
+  elif k == "assignee" and v.strip() in ("", "—", "-"): v = C.dim(v)
+  else: v = inline(v)
+  return f"{C.bold(key + ':')} {v}"
+
+
+def render_markdown(text):
+  w = width()
+  in_code = False
+  for raw in text.splitlines():
+    ln = raw.rstrip()
+    if ln.startswith("```"):
+      in_code = not in_code
+      print(C.dim("  ╭─ " + ln[3:] if in_code else "  ╰─")); continue
+    if in_code:
+      print(C.dim("  │ ") + C.cyan(ln)); continue
+    m = re.match(r"^(#+)\s+(.*)$", ln)
+    if m:
+      level, title = len(m.group(1)), m.group(2)
+      if level == 1: print(C.bold(C.green(title))); print(C.dim("─" * min(w, len(title))))
+      elif level == 2: print(); print(C.bold(C.yellow(title)))
+      else: print(); print(C.bold(title))
+      continue
+    m = re.match(r"^\*\*([\w][\w ]*):\*\*\s*(.*)$", ln)
+    if m: print(field(m.group(1), m.group(2))); continue
+    m = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", ln)
+    if m:
+      indent, marker, body = m.groups()
+      if marker in "-*+": marker = "•"
+      cb = re.match(r"^\[([ xX])\]\s+(.*)$", body)
+      if cb:
+        checked = cb.group(1) != " "
+        body = cb.group(2)
+        marker = C.green("☑") if checked else "☐"
+        body = C.dim(body) if checked else inline(body)
+      else:
+        marker = C.dim(marker); body = inline(body)
+      print(f"{indent}{marker} {body}"); continue
+    m = re.match(r"^>\s?(.*)$", ln)
+    if m: print(C.dim("▎ ") + C.italic(inline(m.group(1)))); continue
+    if re.match(r"^(-{3,}|\*{3,})$", ln): print(C.dim("─" * min(w, 40))); continue
+    print(inline(ln))
+
+
+def line(t, effort, glyph, color, extra=""):
+  tc = TYPE_COLOR.get(t.type, C.dim)
+  who = C.dim(f" @{t.assignee}") if t.assignee and not t.done else ""
+  return f"  {color(glyph)} {C.dim(f'{t.number:02d}')} {C.bold(t.title)}{who}  {tc(t.type)}{extra}"
+
+
+def bar(done, total, w=30):
+  if not total: return ""
+  n = round(w * done / total)
+  return C.green("█" * n) + C.dim("░" * (w - n)) + C.dim(f"  {done}/{total}")
+
+
+def render(effort, show_all, show_fog):
+  ts = sorted(effort.tickets.values(), key=lambda t: t.number)
+  open_ts = [t for t in ts if not t.done]
+  frontier = [t for t in open_ts if not effort.open_blockers(t) and not t.claimed]
+  claimed = [t for t in open_ts if t.claimed]
+  blocked = [t for t in open_ts if effort.open_blockers(t) and not t.claimed]
+  resolved = [t for t in ts if t.status == "resolved"]
+  closed = [t for t in ts if t.done and t.status != "resolved"]
+  w = width()
+  rel = os.path.relpath(effort.map_path, os.getcwd())
+  print(C.bold(f"━━ {effort.title} ") + C.dim("━" * max(0, w - len(effort.title) - 4)))
+  print(f"  {C.dim(rel)}")
+  print(f"  {bar(len(resolved) + len(closed), len(ts))}  "
+        f"{C.green(str(len(frontier)))} frontier · {C.yellow(str(len(claimed)))} claimed · "
+        f"{C.red(str(len(blocked)))} blocked · {C.dim(str(len(resolved)))} resolved · {C.dim(str(len(closed)))} closed")
+  print()
+  print(C.green(C.bold("  Frontier")) + C.dim("  — open, unblocked, unclaimed; first wins"))
+  for t in frontier: print(line(t, effort, "◆", C.green))
+  if not frontier: print(C.dim("    (empty)"))
+  if claimed:
+    print(); print(C.yellow(C.bold("  Claimed")))
+    for t in claimed: print(line(t, effort, "●", C.yellow))
+  if blocked:
+    print(); print(C.red(C.bold("  Blocked")))
+    for t in blocked:
+      waits = ", ".join(f"{b:02d}" for b in effort.open_blockers(t))
+      print(line(t, effort, "○", C.red, C.dim(f"  ← waits on {waits}")))
+  if show_all:
+    if resolved:
+      print(); print(C.dim(C.bold("  Resolved")))
+      for t in resolved: print(line(t, effort, "✓", C.dim, C.dim(f"  {t.closed}")))
+    if closed:
+      print(); print(C.dim(C.bold("  Closed without resolution")))
+      for t in closed: print(line(t, effort, "✗", C.dim, C.dim(f"  {t.closed}")))
+  if show_fog:
+    for name, label in (("Not yet specified", "Fog"), ("Out of scope", "Out of scope")):
+      items = effort.section(name)
+      if not items: continue
+      print(); print(C.dim(C.bold(f"  {label}")))
+      for it in items:
+        print(textwrap.fill(it, width=w - 6, initial_indent="    · ", subsequent_indent="      "))
+  else:
+    fog = effort.section("Not yet specified")
+    if fog: print(); print(C.dim(f"  {len(fog)} fog item{'s' if len(fog) != 1 else ''} in Not yet specified  (--fog to list)"))
+  print()
+
+
+def main():
+  ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+  ap.add_argument("-a", "--all", action="store_true", help="also show resolved and closed tickets")
+  ap.add_argument("--fog", action="store_true", help="print the map's Not yet specified and Out of scope bullets")
+  ap.add_argument("-e", "--effort", help="only efforts whose directory name contains this")
+  ap.add_argument("-n", "--number", type=int, help="print a single ticket")
+  ap.add_argument("--no-color", action="store_true")
+  a = ap.parse_args()
+  if a.no_color: C.on = False
+  if not TICKETS.is_dir():
+    sys.exit(f"no tracker at {TICKETS}")
+  efforts = [Effort(d) for d in sorted(TICKETS.iterdir()) if d.is_dir() and not d.name.startswith(".")]
+  if a.effort: efforts = [e for e in efforts if a.effort.lower() in e.name.lower()]
+  if not efforts: sys.exit("no efforts match")
+  if a.number is not None:
+    for e in efforts:
+      if a.number in e.tickets:
+        t = e.tickets[a.number]
+        print(C.dim(os.path.relpath(t.path, os.getcwd())))
+        render_markdown(t.path.read_text()); return
+    sys.exit(f"no ticket {a.number}")
+  for e in efforts: render(e, a.all, a.fog)
+
+
+if __name__ == "__main__":
+  main()
