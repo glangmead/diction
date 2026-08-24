@@ -26,6 +26,13 @@ One flat, global list of implementation tickets for Diction. Decisions are made 
 <!-- one bullet per bug ticket; a bug has no spec, its ticket carries the diagnosis and fix -->
 
 - [Narration is near-mute after the mic is turned off](issues/02-mic-off-narration-near-mute.md) — `.playAndRecord` left behind by the recognizer is reused for narration; introduced by `f2ccb42`. Resolved in `933f41c` + `ad3ce27`: the recognizer restores `.playback` on the still-active session when it stops (deactivating was the real culprit — it wedged neural narration and voided the category change), narrators decide by `NarrationSessionConfig.shouldApply`. Verified on device.
+- [VoiceCoordinator and InterpreterSession are created four times per game open](issues/03-voice-coordinator-created-four-times.md) — `@State` initial values in `GameView` are evaluated on every view init; seen in ticket 02's device trace. Resolved in `490b148`: the owners build their services (`SpeechRecognizer`, `SpeechSynthesizer`, `AudioRouteController`, `WebInterpreterHost`) lazily, so a discarded copy is a bare allocation; the eager host had also been leaking a `WKWebView` per copy. Simulator counters 2→1 per open; verified on device.
+
+## Chores
+
+<!-- one bullet per chore ticket -->
+
+- [Audit the app bundle size](issues/04-audit-app-bundle-size.md) — measure download/install size per device and rank what to trim or move to on-demand resources.
 
 ## Decisions so far
 
