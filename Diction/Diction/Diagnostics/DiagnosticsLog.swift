@@ -98,6 +98,14 @@ nonisolated enum DiagnosticsLog {
       """)
   }
 
+  /// The neural G2P fallback failed to phonemize an out-of-vocabulary word, so
+  /// the neural voice will skip it. `word` is a token of game text (a proper
+  /// noun the dictionaries miss) — the same low-sensitivity class as a game
+  /// command, so it's logged `.public` to make the dropped word diagnosable.
+  static func g2pFailure(word: String, error: String) {
+    tts.error("g2p-failed word=\(word, privacy: .public) error=\(error, privacy: .public)")
+  }
+
   /// A line of the verbose post-processor trace. `.debug`, so it's live-only and
   /// never persisted into the export — for streaming in Xcode/Console while the
   /// DEBUG toggle is on. Keeps the `os` privacy API confined to this file.

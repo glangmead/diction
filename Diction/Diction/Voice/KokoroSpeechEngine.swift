@@ -146,8 +146,11 @@ final class KokoroSpeechEngine: NSObject {
       return
     }
     do {
+      // The manager's own English path reads G2P from FluidAudio's cache dir too,
+      // so seed it before `initialize` (idempotent; `KokoroPhonemizer.load` repeats
+      // it for callers that build a phonemizer without the engine).
+      try KokoroPhonemizer.seedG2PCacheIfNeeded(fromBundleRoot: root)
       // `ensureModels` appends "kokoro-82m-coreml/ANE" to this directory.
-      try Self.seedG2PCacheIfNeeded(fromBundleRoot: root)
       let mgr = KokoroAneManager(variant: .english, directory: root)
       try await mgr.initialize()
       manager = mgr
@@ -298,35 +301,6 @@ final class KokoroSpeechEngine: NSObject {
       try? NarrationSessionConfig.standard.apply(to: session)
     }
     try? session.setActive(true)
-  }
-
-  // MARK: - Model seeding
-
-  /// Copy the shared G2P assets (`G2PEncoder.mlmodelc`, `G2PDecoder.mlmodelc`,
-  /// `g2p_vocab.json`) from the bundle into `<caches>/fluidaudio/Models/kokoro/`
-  /// if absent. The KokoroAne English path reads G2P only from that fixed cache
-  /// location, so pointing `directory:` at the bundle is not enough for it.
-  private static func seedG2PCacheIfNeeded(fromBundleRoot root: URL) throws {
-    let fileManager = FileManager.default
-    guard let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-      throw CocoaError(.fileNoSuchFile)
-    }
-    let dest = caches.appendingPathComponent("fluidaudio/Models/kokoro", isDirectory: true)
-    let src = root.appendingPathComponent("kokoro", isDirectory: true)
-    let required = ["G2PEncoder.mlmodelc", "G2PDecoder.mlmodelc", "g2p_vocab.json"]
-
-    let allPresent = required.allSatisfy {
-      fileManager.fileExists(atPath: dest.appendingPathComponent($0).path)
-    }
-    if allPresent { return }
-
-    try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
-    for name in required {
-      let from = src.appendingPathComponent(name)
-      let target = dest.appendingPathComponent(name)
-      if fileManager.fileExists(atPath: target.path) { continue }
-      try fileManager.copyItem(at: from, to: target)
-    }
   }
 
 }

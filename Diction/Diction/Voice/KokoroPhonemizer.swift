@@ -17,15 +17,51 @@ struct KokoroPhonemizer: Sendable {
   /// bundled `zork-casing` textRule.
   var tts: TTSInterventions = .empty
 
-  /// Points the vendored loader at the bundled dictionaries and returns a
-  /// phonemizer, or nil if the dictionaries are missing.
+  /// Points the vendored loader at the bundled dictionaries, seeds the OOV G2P
+  /// cache, and returns a phonemizer — or nil if either the dictionaries are
+  /// missing or the G2P assets can't be staged (without them every OOV word would
+  /// silently vanish from narration).
   static func load(bundleRoot: URL) async -> KokoroPhonemizer? {
     DataResourcesUtil.bundleURL = bundleRoot.appendingPathComponent("misaki", isDirectory: true)
     guard !DataResourcesUtil.loadGold(british: false).isEmpty else {
       print("[kokoro] misaki dictionaries missing; falling back to built-in G2P")
       return nil
     }
+    do {
+      try seedG2PCacheIfNeeded(fromBundleRoot: bundleRoot)
+    } catch {
+      print("[kokoro] G2P assets couldn't be staged: \(error); falling back to built-in G2P")
+      return nil
+    }
     return KokoroPhonemizer(oov: StyleTTS2Phonemizer())
+  }
+
+  /// Copy the shared G2P assets (`G2PEncoder.mlmodelc`, `G2PDecoder.mlmodelc`,
+  /// `g2p_vocab.json`) from the bundle into `<caches>/fluidaudio/Models/kokoro/`
+  /// if absent. FluidAudio's `G2PModel` (the OOV fallback here, and the KokoroAne
+  /// English path) reads G2P only from that fixed cache location, so pointing it
+  /// at the bundle is not enough. Idempotent; cheap once seeded.
+  static func seedG2PCacheIfNeeded(fromBundleRoot root: URL) throws {
+    let fileManager = FileManager.default
+    guard let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+      throw CocoaError(.fileNoSuchFile)
+    }
+    let dest = caches.appendingPathComponent("fluidaudio/Models/kokoro", isDirectory: true)
+    let src = root.appendingPathComponent("kokoro", isDirectory: true)
+    let required = ["G2PEncoder.mlmodelc", "G2PDecoder.mlmodelc", "g2p_vocab.json"]
+
+    let allPresent = required.allSatisfy {
+      fileManager.fileExists(atPath: dest.appendingPathComponent($0).path)
+    }
+    if allPresent { return }
+
+    try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
+    for name in required {
+      let from = src.appendingPathComponent(name)
+      let target = dest.appendingPathComponent(name)
+      if fileManager.fileExists(atPath: target.path) { continue }
+      try fileManager.copyItem(at: from, to: target)
+    }
   }
 
   /// Text → KokoroAne IPA. `british` selects the GB dictionaries.
@@ -46,10 +82,10 @@ struct KokoroPhonemizer: Sendable {
       if let remainder = Self.mcNameRemainder(word) {
         // The neural G2P swallows the consonant in "McB…"/"McW…" (it hears
         // "McCain"); pronouncing the remainder alone keeps it, prefixed /mək/.
-        let rest = (try? await oov.phonemize(remainder)) ?? ""
+        let rest = await neuralPhonemes(for: remainder)
         raw = rest.isEmpty ? "" : "mək" + rest
       } else {
-        raw = (try? await oov.phonemize(word)) ?? ""
+        raw = await neuralPhonemes(for: word)
       }
       cache[word] = raw
         .replacingOccurrences(of: "ɾ", with: "T")
@@ -62,6 +98,18 @@ struct KokoroPhonemizer: Sendable {
     let phonemes = EnglishG2P(british: british, fallback: { token in (cache[token.text] ?? "", 1) })
       .phonemize(text: text).0
     return (tts.pausePolicy ?? .default).apply(toPhonemes: phonemes)
+  }
+
+  /// One word through the neural G2P. A failure (typically the G2P assets missing
+  /// from FluidAudio's cache dir) is logged rather than swallowed, because the
+  /// only symptom otherwise is a word silently absent from the narration.
+  private func neuralPhonemes(for word: String) async -> String {
+    do {
+      return try await oov.phonemize(word)
+    } catch {
+      DiagnosticsLog.g2pFailure(word: word, error: "\(error)")
+      return ""
+    }
   }
 
   /// `Mc` + an uppercase consonant other than C/K/Q is a Scottish/Irish surname
