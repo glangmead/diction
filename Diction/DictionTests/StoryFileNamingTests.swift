@@ -47,16 +47,16 @@ struct StoryFileNamingTests {
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: dir) }
 
-    let a = dir.appendingPathComponent("a.bin")
-    let b = dir.appendingPathComponent("b.bin")
-    let c = dir.appendingPathComponent("c.bin")
-    try Data([0x01, 0x02, 0x03]).write(to: a)
-    try Data([0x01, 0x02, 0x03]).write(to: b)
-    try Data([0x01, 0x02, 0x04]).write(to: c)
+    let fileA = dir.appendingPathComponent("a.bin")
+    let fileB = dir.appendingPathComponent("b.bin")
+    let fileC = dir.appendingPathComponent("c.bin")
+    try Data([0x01, 0x02, 0x03]).write(to: fileA)
+    try Data([0x01, 0x02, 0x03]).write(to: fileB)
+    try Data([0x01, 0x02, 0x04]).write(to: fileC)
 
-    let hashA = StoryFileManager.sha256(ofFileAt: a)
+    let hashA = StoryFileManager.sha256(ofFileAt: fileA)
     #expect(hashA != nil)
-    #expect(hashA == StoryFileManager.sha256(ofFileAt: b))
-    #expect(hashA != StoryFileManager.sha256(ofFileAt: c))
+    #expect(hashA == StoryFileManager.sha256(ofFileAt: fileB))
+    #expect(hashA != StoryFileManager.sha256(ofFileAt: fileC))
   }
 }

@@ -185,10 +185,6 @@ final class InterpreterSession {
     gameID = SaveStorage.gameID(for: storyURL)
     dictionary = (try? DictionaryExtractor.extract(from: storyURL)) ?? []
 
-    let sortedDict = dictionary.sorted().joined(separator: ", ")
-    //FileHandle.standardError.write(Data(
-    //  "[diction-dict] \(gameID) — \(dictionary.count) words: \(sortedDict)\n".utf8))
-
     let storyData = try Data(contentsOf: storyURL)
     if detected == .zMachine,
        let version = FormatDetector.zMachineVersion(header: storyData),

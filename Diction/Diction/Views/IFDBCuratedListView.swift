@@ -27,7 +27,7 @@ struct IFDBCuratedListView: View {
         Text("Note: some games may not have downloads on IFDB and must be found elsewhere.")
           .font(.subheadline)
           .foregroundStyle(.secondary)
-        
+
         ForEach(list.sections) { section in
           sectionView(section)
         }

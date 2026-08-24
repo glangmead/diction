@@ -157,8 +157,8 @@ final class StoryFileManager {
 
   private func importedStories() -> [StoryFile] {
     let dates = lastPlayedMap()
-    let fm = FileManager.default
-    guard let urls = try? fm.contentsOfDirectory(
+    let fileManager = FileManager.default
+    guard let urls = try? fileManager.contentsOfDirectory(
       at: documentsURL,
       includingPropertiesForKeys: nil
     ) else { return [] }

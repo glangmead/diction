@@ -57,8 +57,7 @@ nonisolated struct RemGlkUpdate: Codable, Sendable {
     // swiftlint:disable identifier_name
     /// Window default foreground / background colour (CSS strings), set via
     /// stylehints or `glk_window_set_background_color`. Often null. Names mirror
-    /// RemGlk's literal `fg`/`bg` keys so auto-`Codable` matches the wire format
-    /// — renaming would force a `CodingKeys` enum that trips the nesting rule.
+    /// RemGlk's literal `fg`/`bg` keys so auto-`Codable` matches the wire format.
     var fg: String?
     var bg: String?
     // swiftlint:enable identifier_name

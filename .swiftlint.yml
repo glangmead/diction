@@ -6,3 +6,16 @@ excluded:
   - Diction/Diction/Voice/Misaki
   - Diction/KokoroAudition/Misaki
   - nocommit
+
+# The three big view/coordinator files are ~30% doc comments; don't count those.
+file_length:
+  ignore_comment_only_lines: true
+
+# `CodingKeys` inside a nested Codable type is the canonical exception.
+nesting:
+  ignore_coding_keys: true
+
+# Loop indices and coordinates. `^id$` is the default and must be kept when
+# overriding the list.
+identifier_name:
+  excluded: ["^id$", "^[ijk]$", "^[xy]$"]

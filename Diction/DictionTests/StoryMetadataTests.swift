@@ -127,7 +127,7 @@ struct StoryMetadataTests {
     let ridx = chunk("RIdx", beUInt32(1) + Array("Pict".utf8) + beUInt32(1) + beUInt32(pngStart))
     let pict = chunk("PNG ", png)
 
-    var body = Array("IFRS".utf8) + ridx + ifmd + fspc + pict
+    let body = Array("IFRS".utf8) + ridx + ifmd + fspc + pict
     let blorb = Array("FORM".utf8) + beUInt32(body.count) + body
 
     let dir = FileManager.default.temporaryDirectory
