@@ -43,6 +43,11 @@ final class SpeechSynthesizer: NSObject {
   /// Defaults to demo so any path that never wires it (e.g. tests) stays gated.
   var isFullVersion: @MainActor () -> Bool = { false }
 
+  /// Whether a recognizer currently owns the shared audio session, injected by
+  /// `VoiceCoordinator`. Defaults to "no" so a synthesizer with no coordinator
+  /// (e.g. tests) configures the session for itself.
+  var isRecognizerLive: @MainActor () -> Bool = { false }
+
   override init() {
     super.init()
     synthesizer.delegate = self
@@ -180,16 +185,15 @@ final class SpeechSynthesizer: NSObject {
 
   // MARK: - Internals
 
-  /// Ensure an active, playback-capable audio session before narrating. The
-  /// recognizer owns a `.playAndRecord` session while listening, but narration is
-  /// free and mic-independent now, so the synthesizer can't assume the recognizer
-  /// has activated one — it activates `.playback` itself when nothing else has.
-  /// A compatible category already in place (the recognizer's `.playAndRecord`)
-  /// is left untouched. Mirrors `KokoroSpeechEngine.ensureSessionForPlayback`.
+  /// Ensure an active, playback-capable audio session before narrating. A live
+  /// recognizer owns the session and is left alone; otherwise narration runs
+  /// under `NarrationSessionConfig`, set here unless already in place. Mirrors
+  /// `KokoroSpeechEngine.ensureSessionForPlayback`.
   private func activatePlaybackSession() {
     let session = AVAudioSession.sharedInstance()
-    if session.category != .playback && session.category != .playAndRecord {
-      try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
+    if NarrationSessionConfig.shouldApply(
+      recognizerLive: isRecognizerLive(), currentCategory: session.category) {
+      try? NarrationSessionConfig.standard.apply(to: session)
     }
     try? session.setActive(true)
   }

@@ -64,7 +64,16 @@ final class VoiceCoordinator {
     audioRoute.onConfigChange = { [weak self] in
       self?.reconfigureListeningIfNeeded()
     }
+    // The synthesizer must leave the audio session alone while the recognizer
+    // owns it, and learns that from the recognizer — never from the session's
+    // category (see `NarrationSessionConfig`).
+    synthesizer.isRecognizerLive = { [weak self] in self?.isRecognizerLive ?? false }
   }
+
+  /// Whether the recognizer currently owns the shared audio session. Read by
+  /// anything that narrates outside this coordinator — the neural-voice audition
+  /// in Settings, reachable mid-game — via `\.isRecognizerLive`.
+  var isRecognizerLive: Bool { recognizer.ownsAudioSession }
 
   // MARK: - Wake word
 
@@ -262,10 +271,13 @@ final class VoiceCoordinator {
   /// voice-processing unit keep running after the game closes, so opening the
   /// next game starts a second engine on top of the first.
   func tearDown() {
-    recognizer.stopContinuous()
-    synthesizer.stop()
+    // Clear the flag before stopping the recognizer: its category flip fires a
+    // route-change notification, and `reconfigureListeningIfNeeded` must see
+    // listening off whenever that is delivered.
     isListening = false
     activeListeningConfig = nil
+    recognizer.stopContinuous()
+    synthesizer.stop()
   }
 
   // MARK: - Dispatch

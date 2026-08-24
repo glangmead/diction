@@ -36,6 +36,12 @@ final class SpeechRecognizer {
   private var inContinuous = false
   private var contextualStringsProvider: (@MainActor () -> [String])?
 
+  /// True from `startContinuous` until `stopContinuous` (or a failed start): the
+  /// window in which this recognizer owns the shared audio session as
+  /// `.playAndRecord`. Narrators consult this — never the session's category —
+  /// before touching the session. See `NarrationSessionConfig.shouldApply`.
+  var ownsAudioSession: Bool { inContinuous }
+
   private var silenceTask: Task<Void, Never>?
   private let silenceInterval: Duration = .milliseconds(1200)
   /// Set when the silence timer fires and we call `endAudio()` — i.e. the user
@@ -97,6 +103,9 @@ final class SpeechRecognizer {
     } catch {
       errorMessage = "Speech start failed: \(error)"
       inContinuous = false
+      // `startEngine` may have put the session into `.playAndRecord` before it
+      // threw; hand it back so narration doesn't inherit a half-configured session.
+      releaseSession()
     }
   }
 
@@ -114,13 +123,27 @@ final class SpeechRecognizer {
     task = nil
     audioEngine?.stop()
     audioEngine = nil
-    // Actually release the shared session (the method comment always claimed
-    // this). Leaving it active meant a second game's fresh engine enabled voice
-    // processing over a still-active session, and its input node came up with an
-    // invalid (0 Hz / 0 ch) format — the crash on re-opening a game. Deactivating
-    // lets the next `startEngine` re-initialise voice processing cleanly.
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    releaseSession()
     isListening = false
+  }
+
+  /// Deactivate the shared session and hand it back in the narration
+  /// configuration. Both halves matter:
+  ///
+  /// - Deactivating: leaving the session active meant a second game's fresh engine
+  ///   enabled voice processing over a still-active session, and its input node
+  ///   came up with an invalid (0 Hz / 0 ch) format — the crash on re-opening a
+  ///   game. Deactivating lets the next `startEngine` re-initialise VPIO cleanly.
+  /// - Restoring the category: `startEngine` put the session into `.playAndRecord`
+  ///   and only a live recognizer may own that — see `NarrationSessionConfig`.
+  ///
+  /// A route change restarts the recognizer (`stopContinuous` then
+  /// `startContinuous`), so the category flips `.playAndRecord` → `.playback` →
+  /// `.playAndRecord`; the extra flip costs one more route-change notification.
+  private func releaseSession() {
+    let session = AVAudioSession.sharedInstance()
+    try? session.setActive(false, options: .notifyOthersOnDeactivation)
+    try? ListeningSessionConfig.restoredOnStop.apply(to: session)
   }
 
   // MARK: - Engine + cycle lifecycle

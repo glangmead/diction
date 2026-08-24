@@ -23,6 +23,11 @@ struct ListeningSessionConfig: Equatable {
   /// Category is always `.playAndRecord` while listening.
   static let category: AVAudioSession.Category = .playAndRecord
 
+  /// What the recognizer hands the shared session back as when it stops: always a
+  /// real category change away from `.playAndRecord`, which is what clears iOS's
+  /// post-VPIO gain reduction. See `NarrationSessionConfig` for the story.
+  static let restoredOnStop = NarrationSessionConfig.standard
+
   /// Safe fallback used before the first real configuration: built-in mic, loud
   /// speaker, echo cancellation on.
   static let `default` = ListeningSessionConfig(

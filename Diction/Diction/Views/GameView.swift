@@ -104,6 +104,9 @@ struct GameView: View {
     }
     .sheet(isPresented: $showingSettings) {
       SettingsView(selectedTab: $settingsTab)
+        // Settings is reachable while the game is listening: the neural-voice
+        // audition in there must know whether the recognizer owns the session.
+        .environment(\.isRecognizerLive, { [coordinator] in coordinator.isRecognizerLive })
     }
     .sheet(isPresented: $showingPaywall) {
       PaywallView()

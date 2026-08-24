@@ -8,6 +8,7 @@ struct KokoroVoicePickerView: View {
   let title: String
   @Binding var selectedVoiceID: String
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.isRecognizerLive) private var isRecognizerLive
 
   @State private var audition = KokoroSpeechEngine()
   @State private var auditioningVoice: String?
@@ -53,7 +54,8 @@ struct KokoroVoicePickerView: View {
     .navigationTitle(title)
     .navigationBarTitleDisplayMode(.inline)
     .task {
-      audition.managesSession = true  // no recognizer here; configure the session
+      audition.managesSession = true  // no synthesizer here; configure the session
+      audition.isRecognizerLive = isRecognizerLive
       await audition.prepareIfNeeded()
     }
   }

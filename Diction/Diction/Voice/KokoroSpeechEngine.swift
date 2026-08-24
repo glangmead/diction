@@ -38,10 +38,16 @@ final class KokoroSpeechEngine: NSObject {
     }
   }
 
-  /// Set true for the Settings audition instance (no recognizer running) so it
-  /// configures the audio session itself. In a game the recognizer owns the
-  /// session, so the in-game instance leaves it alone (like `AVSpeechSynthesizer`).
+  /// Set true for the Settings audition instance so it configures the audio
+  /// session itself. In a game `SpeechSynthesizer` configures the session before
+  /// every pass, so the in-game instance leaves it alone.
   var managesSession = false
+
+  /// Whether a recognizer currently owns the shared audio session; consulted only
+  /// when `managesSession`. Settings is reachable from inside a game while it is
+  /// listening, so the audition must not reconfigure the recognizer's session.
+  /// Injected from `\.isRecognizerLive` by `KokoroVoicePickerView`; defaults to "no".
+  var isRecognizerLive: @MainActor () -> Bool = { false }
 
   /// The English voice packs bundled in `KokoroModels.bundle`, in display order
   /// (US female, US male, UK female, UK male). Names map to `<id>.bin` files.
@@ -281,13 +287,15 @@ final class KokoroSpeechEngine: NSObject {
     continuation.resume()
   }
 
-  /// Audition (no recognizer) configures the session for playback. In a game the
-  /// recognizer already owns an active `.playAndRecord` session, so leave it.
+  /// The audition configures the session for playback unless a live recognizer
+  /// owns it (`NarrationSessionConfig.shouldApply`). Mirrors
+  /// `SpeechSynthesizer.activatePlaybackSession`.
   private func ensureSessionForPlayback() {
     guard managesSession else { return }
     let session = AVAudioSession.sharedInstance()
-    if session.category != .playback && session.category != .playAndRecord {
-      try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
+    if NarrationSessionConfig.shouldApply(
+      recognizerLive: isRecognizerLive(), currentCategory: session.category) {
+      try? NarrationSessionConfig.standard.apply(to: session)
     }
     try? session.setActive(true)
   }

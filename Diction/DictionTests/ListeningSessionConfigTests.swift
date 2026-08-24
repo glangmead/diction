@@ -61,4 +61,13 @@ struct ListeningSessionConfigTests {
       #expect(!config.options.contains(.defaultToSpeaker))
     }
   }
+
+  @Test("stopping hands the session back as a plain playback session — a category change away from playAndRecord")
+  func restoredOnStopLeavesPlayAndRecord() {
+    let restored = ListeningSessionConfig.restoredOnStop
+    #expect(restored.category == .playback)
+    #expect(restored.category != ListeningSessionConfig.category)
+    #expect(restored.mode == .default)
+    #expect(restored.options == [.duckOthers])
+  }
 }

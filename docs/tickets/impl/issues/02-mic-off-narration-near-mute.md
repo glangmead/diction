@@ -1,11 +1,11 @@
 # 02 — Narration is near-mute after the mic is turned off
 
 **Type:** bug  
-**Status:** ready-for-agent  
+**Status:** claimed  
 **Blocked by:** None  
 **From:** bug report by glangmead, 2026-08-24 (on-device, Apple TTS); introduced by commit `f2ccb42` (free narration with the mic off)  
 **Spec:** None — bug; the fix is specified below  
-**Assignee:** —  
+**Assignee:** glangmead  
 **Opened:** 2026-08-24  
 
 ## Task
