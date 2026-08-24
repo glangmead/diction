@@ -36,9 +36,10 @@ import AVFoundation
 final class VoiceCoordinator {
   // MARK: - View-observable state
 
-  /// Input axis — is the app listening to the user. Off until an owner with
-  /// "Play using my voice" on opens a game (or taps the mic): voice input is a
-  /// paid feature, so it never auto-starts for a free user.
+  /// Input axis — is the app listening to the user. Off until someone with
+  /// "Play using my voice" on opens a game where voice commands are allowed (or
+  /// taps the mic there). `setListening` refuses whenever the game's gate says
+  /// no, so it never starts for a free user outside a bundled game.
   private(set) var isListening = false
   /// Output axis — does the app speak. Toggling off stops the current sentence.
   /// Off and immutable in the Simulator, where TTS is unavailable (it screeches);
@@ -91,9 +92,9 @@ final class VoiceCoordinator {
     synthesizer.useSharedEngine(warmer.engine)
   }
 
-  /// The live full-version entitlement. Gates auto-listen here (voice input is
-  /// owner-only) and is forwarded to the synthesizer so a free/refunded user
-  /// never narrates with a paid neural voice.
+  /// The live full-version entitlement, forwarded to the synthesizer so a
+  /// free/refunded user never narrates with a locked neural voice. Listening is
+  /// gated separately by `voiceCommandsAllowed`, which also admits a bundled game.
   private var isFullVersion: @MainActor () -> Bool = { false }
 
   /// Wire the app-level store's entitlement in. Weak so the coordinator doesn't
@@ -101,6 +102,19 @@ final class VoiceCoordinator {
   func useEntitlement(_ store: StoreManager) {
     isFullVersion = { [weak store] in store?.isFullVersion ?? false }
     synthesizer.isFullVersion = isFullVersion
+  }
+
+  /// Whether voice commands may run in the current game: purchased, or a
+  /// bundled game where they are free to try (`DemoPolicy.voiceCommandsAllowed`).
+  /// Closed until the game installs its gate, so a coordinator with no game
+  /// never listens.
+  private var voiceCommandsAllowed: @MainActor () -> Bool = { false }
+
+  /// Install the game's voice-command gate. The game is the only place that
+  /// knows the story's source, so it decides; this is the single choke point
+  /// (`setListening`) that applies the decision.
+  func useVoiceCommandGate(_ allowed: @escaping @MainActor () -> Bool) {
+    voiceCommandsAllowed = allowed
   }
 
   /// The resolved speech profile (global). The TTS slice is forwarded to the
@@ -161,25 +175,29 @@ final class VoiceCoordinator {
 
   /// Called once when the game view appears. Narration (the accessibility voice)
   /// is free and on by default, so the opening is read regardless of the mic.
-  /// Listening auto-starts only for an owner who turned "Play using my voice" on;
-  /// `setListening` won't fire its own `onChange` on open, so this is the initial
-  /// sync.
+  /// Listening auto-starts only when the game's gate allows voice commands and
+  /// "Play using my voice" is on; `setListening` won't fire its own `onChange`
+  /// on open, so this is the initial sync.
   func startOnAppear() async {
     // Warm the neural model early so the opening narration doesn't pay the
     // ~2-3s cold start. Self-gates on `usesNeuralVoice`, so it's a no-op when
     // neural is locked or off.
     synthesizer.warmUpKokoro()
     narrateOpeningIfNeeded()
-    if isFullVersion() && UserDefaults.standard.bool(forKey: "voiceInput") {
+    if voiceCommandsAllowed() && UserDefaults.standard.bool(forKey: "voiceInput") {
       await setListening(true)
     }
   }
 
+  /// Turn the recognizer on or off. Turning it on is refused while the game's
+  /// gate says voice commands aren't allowed — the one choke point, so the
+  /// Settings toggle (live for every user) is safe to flip inside a locked game.
   func setListening(_ enabled: Bool) async {
     guard !listeningTransitionInFlight else { return }
     listeningTransitionInFlight = true
     defer { listeningTransitionInFlight = false }
     if enabled {
+      guard voiceCommandsAllowed() else { return }
       if !voiceAuthChecked {
         let granted = await recognizer.requestAuthorization()
         voiceAuthChecked = true

@@ -10,8 +10,10 @@ struct VoiceSettingsSection: View {
   let onRequestUnlock: () -> Void
 
   @Environment(StoreManager.self) private var store
-  // Both voice features default off — they're the paid unlock. A free user
-  // narrates through the accessibility voice and types commands.
+  // Both voice features default off — they're the locked features. A free user
+  // narrates through the accessibility voice and types commands, except in a
+  // bundled game, where voice commands are free to try. So "Play using my
+  // voice" is a plain preference for everyone; the game applies the gate.
   @AppStorage("useKokoro") private var useKokoro: Bool = false
   @AppStorage("voiceInput") private var voiceInput: Bool = false
   @AppStorage("kokoroVoiceId") private var kokoroVoiceId: String = "af_heart"
@@ -82,11 +84,17 @@ struct VoiceSettingsSection: View {
         .accessibilityValue(rateAccessibilityValue)
       }
 
-      gatedToggle(
-        "Play using my voice",
-        isOn: $voiceInput,
-        hint: "Speak your commands instead of typing."
-      )
+      VStack(alignment: .leading, spacing: 8) {
+        Toggle("Play using my voice", isOn: $voiceInput)
+          .accessibilityHint("Speak your commands instead of typing.")
+        // Free state only: say where the toggle actually does something.
+        if !store.isFullVersion {
+          Text("Free to try in All Things Devours. Unlock to play every game by voice.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
 
       VStack(alignment: .leading, spacing: 8) {
         LabeledContent("Wake word") {
@@ -110,9 +118,10 @@ struct VoiceSettingsSection: View {
     }
   }
 
-  /// A toggle for a paid voice feature. When unlocked it's a normal `Toggle`;
-  /// while locked it's a row with a lock that opens the paywall instead of
-  /// flipping — "show a paywall if the user tries to turn it on".
+  /// A toggle for a locked voice feature (today only "Use neural voice"). When
+  /// unlocked it's a normal `Toggle`; while locked it's a row with a lock that
+  /// opens the paywall instead of flipping — "show a paywall if the user tries
+  /// to turn it on".
   @ViewBuilder
   private func gatedToggle(_ title: String, isOn: Binding<Bool>, hint: String) -> some View {
     if store.isFullVersion {

@@ -14,6 +14,7 @@ struct PaywallView: View {
         VStack(spacing: 24) {
           header
           featureList
+          freeToTryNote
           actions
         }
         .padding()
@@ -65,6 +66,16 @@ struct PaywallView: View {
       Spacer(minLength: 0)
     }
     .accessibilityElement(children: .combine)
+  }
+
+  /// So a user who only wants to try voice commands doesn't buy by accident
+  /// (ADR 0001). Plain text, so VoiceOver reads it in order, before the purchase
+  /// button. Unconditional: the paywall only appears in the free state.
+  private var freeToTryNote: some View {
+    Text("Want to try voice commands first? They're free in All Things Devours.")
+      .font(.subheadline)
+      .foregroundStyle(.secondary)
+      .multilineTextAlignment(.center)
   }
 
   @ViewBuilder

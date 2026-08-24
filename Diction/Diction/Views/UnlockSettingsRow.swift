@@ -46,7 +46,7 @@ struct UnlockSettingsRow: View {
       Text(
         """
         Unlock to narrate with premium neural voices and to play by speaking \
-        your commands.
+        your commands. Voice commands are free to try in All Things Devours.
         """
       )
     }

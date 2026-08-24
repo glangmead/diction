@@ -99,7 +99,7 @@ Say or type "game" followed by these commands to issue commands to Diction itsel
 * To add to the Apple voices you have to first visit your device's Settings > Accessibility > Read & Speak > Voices > English > Voice.
 * Tap the speaker icon in the top toolbar to silence the narration. Turn it back on at any time.
 * _(Full version, or in All Things Devours)_ The mic is automatically listening and can tell when you're done talking.
-* _(Full version, or in All Things Devours)_ Mute the mic in the top toolbar to stop giving voice input.
+* _(Full version, or in All Things Devours)_ Mute the mic in the top toolbar to stop giving voice commands.
 * _(Full version, or in All Things Devours)_ The recognition favors words in the recent game log, to help with accuracy and to include unusual words and names.
 
 """

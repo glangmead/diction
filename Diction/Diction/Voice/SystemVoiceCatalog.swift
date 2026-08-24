@@ -35,8 +35,9 @@ enum SystemVoiceCatalog {
   }
 
   /// The languages the picker offers. iOS ships voices for dozens of languages;
-  /// Diction's content is English plus the bundled French and Spanish games, so the
-  /// list is scoped to those three rather than overwhelming the user with the rest.
+  /// the list is scoped to English plus French and Spanish rather than
+  /// overwhelming the user with the rest. The only bundled game is in English;
+  /// whether to trim the set further is a voice-picker question, not a content one.
   static let supportedLanguageCodes: Set<String> = ["en", "fr", "es"]
 
   /// Voices grouped by locale (en-US, en-GB, fr-CA, …): the user's own locale first,

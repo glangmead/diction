@@ -20,7 +20,8 @@ are a click away.
   files.
 
 The paywall covers voice features only: games and system-voice narration are free;
-a single in-app purchase unlocks the neural voice and voice input.
+a single in-app purchase unlocks neural narration and voice commands. Voice commands
+are free to try in the bundled game.
 
 ## Architecture
 

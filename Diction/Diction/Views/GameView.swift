@@ -124,6 +124,12 @@ struct GameView: View {
       coordinator.attach(session: session)
       coordinator.useSharedVoice(voiceWarmer)
       coordinator.useEntitlement(store)
+      // The game is the only place that knows the story, so it hands the
+      // coordinator the gate. Capture the `Source` value, not the view.
+      let source = storyFile.source
+      coordinator.useVoiceCommandGate { [weak store] in
+        DemoPolicy.voiceCommandsAllowed(fullVersion: store?.isFullVersion ?? false, source: source)
+      }
       coordinator.useSpeechProfile(speechProfiles.profile)
       session.snapshotStore = .default   // per-turn autosave + resume-on-open
       // Set before load so the first style-hint injection lifts game colours for
@@ -235,13 +241,21 @@ struct GameView: View {
     .accessibilityLabel("Settings")
   }
 
-  /// Voice input is a paid feature. Unlocked: a tap toggles `voiceInput` (mirrored
-  /// by the Settings toggle, recognizer driven from it in `.onChange`), and a
-  /// press-and-hold opens a menu to pick the microphone input — the corner chevron
-  /// advertises that menu. Locked: a disabled-looking mic that opens the paywall.
+  /// Whether voice commands may run in this game: purchased, or a bundled game
+  /// where they are free to try. Read from `body` (via `micToggle`) so the view
+  /// tracks the store's entitlement.
+  private var voiceCommandsAllowed: Bool {
+    DemoPolicy.voiceCommandsAllowed(fullVersion: store.isFullVersion, source: storyFile.source)
+  }
+
+  /// Voice commands are a locked feature, free to try in a bundled game. Allowed: a
+  /// tap toggles `voiceInput` (mirrored by the Settings toggle, recognizer driven
+  /// from it in `.onChange`), and a press-and-hold opens a menu to pick the
+  /// microphone input — the corner chevron advertises that menu. Locked: a
+  /// disabled-looking mic that opens the paywall.
   @ViewBuilder
   private var micToggle: some View {
-    if store.isFullVersion {
+    if voiceCommandsAllowed {
       Menu {
         Picker("Microphone", selection: micInputBinding) {
           Text("Automatic").tag(AudioInputChoice.automatic)
@@ -265,7 +279,9 @@ struct GameView: View {
           .foregroundStyle(.gray)
       }
       .accessibilityLabel("Voice input locked")
-      .accessibilityHint("Opens the in-app purchase to play by speaking your commands.")
+      .accessibilityHint(
+        "Opens the in-app purchase to play by speaking your commands. Free to try in All Things Devours."
+      )
     }
   }
 
