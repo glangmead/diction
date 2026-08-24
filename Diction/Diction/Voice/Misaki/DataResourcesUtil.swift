@@ -2,7 +2,7 @@ import Foundation
 
 // Loads misaki's gold/silver dictionaries from KokoroModels.bundle/misaki/.
 // `bundleURL` is set once by KokoroPhonemizer.load before any EnglishG2P is built.
-enum DataResourcesUtil {
+nonisolated enum DataResourcesUtil {
   nonisolated(unsafe) static var bundleURL: URL?
 
   static func loadGold(british: Bool) -> [String: Any] {

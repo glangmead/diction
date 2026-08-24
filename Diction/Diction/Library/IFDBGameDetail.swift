@@ -141,7 +141,7 @@ nonisolated struct IFDBGameDetail: Sendable, Codable {
 
 /// Upgrades an `http` URL to `https`, leaving other schemes untouched. The
 /// IF Archive and the other common IF mirrors all serve their files over TLS.
-private func httpsUpgraded(_ url: URL) -> URL {
+private nonisolated func httpsUpgraded(_ url: URL) -> URL {
   guard url.scheme?.lowercased() == "http",
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
     return url
@@ -156,7 +156,7 @@ private func httpsUpgraded(_ url: URL) -> URL {
 /// exact-matching. The downloaded file's real format is re-confirmed from its
 /// bytes by `FormatDetector` (a `.gblorb` resolves to `.glulx` via its inner
 /// `GLUL` chunk), so picking `.glulx` here for `blorb/glulx` is correct.
-func ifictionStoryFormat(_ raw: String) -> StoryFormat? {
+nonisolated func ifictionStoryFormat(_ raw: String) -> StoryFormat? {
   let format = raw.lowercased()
   if format.contains("glulx") { return .glulx }
   if format.contains("zcode") || format.contains("z-code") { return .zMachine }
@@ -164,7 +164,7 @@ func ifictionStoryFormat(_ raw: String) -> StoryFormat? {
 }
 
 /// Formats a half-step star rating for display: "4", "2.5", or nil when unrated.
-func starRatingText(_ rating: Double?) -> String? {
+nonisolated func starRatingText(_ rating: Double?) -> String? {
   guard let rating, rating > 0 else { return nil }
   if rating == rating.rounded() {
     return String(Int(rating))
@@ -179,7 +179,7 @@ func starRatingText(_ rating: Double?) -> String? {
 /// native styling/taps; structural tags become line breaks (list items become
 /// bullets). Prose runs have their Markdown metacharacters escaped so a literal
 /// `*`, `[`, or `_` in a blurb renders as itself rather than as syntax.
-func markdown(fromIFDBHTML html: String) -> String {
+nonisolated func markdown(fromIFDBHTML html: String) -> String {
   var output = ""
   var inLink = false
   var linkText = ""
@@ -241,7 +241,7 @@ func markdown(fromIFDBHTML html: String) -> String {
 /// literally. Only these characters trigger inline syntax in
 /// `AttributedString(markdown:)`; escaping anything else would leave a stray
 /// backslash, so the set is exactly the inline specials.
-private func escapeMarkdown(_ string: String) -> String {
+private nonisolated func escapeMarkdown(_ string: String) -> String {
   var result = ""
   result.reserveCapacity(string.count)
   for character in string {
@@ -253,7 +253,7 @@ private func escapeMarkdown(_ string: String) -> String {
 
 /// Pulls the `href` value out of an `<a …>` tag's interior (double or single
 /// quoted), still entity-encoded — the caller decodes it.
-private func hrefValue(in tagInterior: String) -> String? {
+private nonisolated func hrefValue(in tagInterior: String) -> String? {
   if let match = tagInterior.firstMatch(of: /href\s*=\s*"([^"]*)"/) {
     return String(match.1)
   }
@@ -269,7 +269,7 @@ private func hrefValue(in tagInterior: String) -> String? {
 /// surviving as the literal text `&#039;` rather than collapsing to `'`. A `&`
 /// that doesn't open a recognized entity (and any unknown `&name;`) is left
 /// untouched, so "AT&T" stays "AT&T".
-func decodeHTMLEntities(_ string: String) -> String {
+nonisolated func decodeHTMLEntities(_ string: String) -> String {
   guard string.contains("&") else { return string }
   var result = ""
   result.reserveCapacity(string.count)
@@ -296,7 +296,7 @@ func decodeHTMLEntities(_ string: String) -> String {
 
 /// Decodes the inside of a single `&…;` entity (no ampersand or semicolon).
 /// Returns nil for anything unrecognized so the caller can leave it literal.
-private func decodeHTMLEntityBody(_ body: String) -> String? {
+private nonisolated func decodeHTMLEntityBody(_ body: String) -> String? {
   if body.hasPrefix("#") {
     let digits = body.dropFirst()
     let value: UInt32? = (digits.first == "x" || digits.first == "X")
@@ -310,7 +310,7 @@ private func decodeHTMLEntityBody(_ body: String) -> String? {
 
 /// Named entities common in IFDB prose. The decimal/hex path covers the long
 /// tail, so this only needs the names IFDB actually emits unencoded.
-private let htmlNamedEntities: [String: String] = [
+private nonisolated let htmlNamedEntities: [String: String] = [
   "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
   "mdash": "—", "ndash": "–", "hellip": "…", "bull": "•", "middot": "·",
   "lsquo": "\u{2018}", "rsquo": "\u{2019}", "ldquo": "\u{201C}", "rdquo": "\u{201D}",

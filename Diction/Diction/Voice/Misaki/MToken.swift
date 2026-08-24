@@ -2,7 +2,7 @@ import Foundation
 import NaturalLanguage
 
 /// Additional metadata for tokens, storing linguistic and prosodic information.
-public class Underscore {
+nonisolated public class Underscore {
   /// Indicates whether this token is the head of a phrase or syntactic unit.
   public var is_head: Bool
   /// An alternative representation or alias for the token (e.g., abbreviation expansion).
@@ -59,7 +59,7 @@ public class Underscore {
 }
 
 /// Extension providing a human-readable string representation.
-extension Underscore: CustomStringConvertible {
+nonisolated extension Underscore: CustomStringConvertible {
   /// A textual representation of the `Underscore` instance showing all properties.
   public var description: String {
     let mirror = Mirror(reflecting: self)
@@ -72,7 +72,7 @@ extension Underscore: CustomStringConvertible {
 }
 
 /// Represents a single linguistic token with associated metadata.
-public class MToken {
+nonisolated public class MToken {
   /// The text content of the token.
   public var text: String
   /// The character range of this token in the original string.
@@ -135,7 +135,7 @@ public class MToken {
 }
 
 /// Extension providing a human-readable string representation.
-extension MToken : CustomStringConvertible {
+nonisolated extension MToken : CustomStringConvertible {
   /// A textual representation of the `MToken` instance showing all properties.
   public var description: String {
     let mirror = Mirror(reflecting: self)

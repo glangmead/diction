@@ -22,7 +22,7 @@ struct DiagnosticsEnvironment: Sendable, Equatable {
 /// Pure rendering of recovered log entries into the plain-text export. No I/O, no
 /// platform reads — every input is passed in, so the output is deterministic and
 /// testable. `DiagnosticsExport` supplies the entries and environment.
-enum DiagnosticsFormatter {
+nonisolated enum DiagnosticsFormatter {
   /// `2026-06-08T13:11:18.267Z [asr] notice  cycle end (final) …`
   static func line(for entry: DiagnosticsEntry) -> String {
     "\(timestamp(entry.date)) [\(entry.category)] \(entry.level)  \(entry.message)"
@@ -41,13 +41,10 @@ enum DiagnosticsFormatter {
   }
 
   private static func timestamp(_ date: Date) -> String {
-    isoFormatter.string(from: date)
+    date.formatted(timestampStyle)
   }
 
-  private static let isoFormatter: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    formatter.timeZone = TimeZone(identifier: "UTC")
-    return formatter
-  }()
+  /// A value-type style (Sendable) rather than a shared `ISO8601DateFormatter`
+  /// instance, which Swift 6 rejects as a non-Sendable static. UTC by default.
+  private static let timestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 }

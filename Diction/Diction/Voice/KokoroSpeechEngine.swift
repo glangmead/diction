@@ -18,7 +18,7 @@ import FluidAudio
 @MainActor
 final class KokoroSpeechEngine: NSObject {
 
-  enum State: Equatable {
+  nonisolated enum State: Equatable {
     case idle
     case preparing
     case ready

@@ -68,7 +68,7 @@ nonisolated enum WindowInventory {
   }
 }
 
-private extension String {
+private nonisolated extension String {
   /// "status bar above the story" → "Status bar above the story", for a readout title.
   var capitalizedFirstLetter: String {
     guard let first else { return self }

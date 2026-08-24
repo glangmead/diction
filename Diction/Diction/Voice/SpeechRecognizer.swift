@@ -79,7 +79,9 @@ final class SpeechRecognizer {
 
   func requestAuthorization() async -> Bool {
     let speech = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-      SFSpeechRecognizer.requestAuthorization { status in
+      // `@Sendable`: Speech calls this on an arbitrary queue; an implicit
+      // `@MainActor` closure (the app's default isolation) traps there under Swift 6.
+      SFSpeechRecognizer.requestAuthorization { @Sendable status in
         continuation.resume(returning: status == .authorized)
       }
     }
@@ -236,8 +238,11 @@ final class SpeechRecognizer {
       isListening = false
       return
     }
-    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-      req.append(buffer)
+    // The tap runs on the audio render thread, so the block must be `@Sendable`
+    // (same trap as above). Appending from that thread is the API's designed use.
+    nonisolated(unsafe) let request = req
+    input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in
+      request.append(buffer)
     }
 
     transcription = ""

@@ -25,7 +25,7 @@ One flat, global list of implementation tickets for Diction. Decisions are made 
 
 <!-- one bullet per bug ticket; a bug has no spec, its ticket carries the diagnosis and fix -->
 
-- [Narration is near-mute after the mic is turned off](issues/02-mic-off-narration-near-mute.md) — `.playAndRecord` left behind by the recognizer is reused for narration; introduced by `f2ccb42`. Resolved in `933f41c`: the recognizer restores `.playback` on stop, narrators decide by `NarrationSessionConfig.shouldApply`. Device acceptance still to run.
+- [Narration is near-mute after the mic is turned off](issues/02-mic-off-narration-near-mute.md) — `.playAndRecord` left behind by the recognizer is reused for narration; introduced by `f2ccb42`. Resolved in `933f41c` + `ad3ce27`: the recognizer restores `.playback` on the still-active session when it stops (deactivating was the real culprit — it wedged neural narration and voided the category change), narrators decide by `NarrationSessionConfig.shouldApply`. Verified on device.
 
 ## Decisions so far
 

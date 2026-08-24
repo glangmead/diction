@@ -18,7 +18,7 @@ import os
 ///   "take all"); structural fields are `.public` too since these lines carry no
 ///   other sensitive content. The typed helpers below are the single home for that
 ///   decision — nothing outside this file logs raw recognized text.
-enum DiagnosticsLog {
+nonisolated enum DiagnosticsLog {
   static let subsystem = "com.luminous.diction"
 
   /// Speech-recognizer lifecycle and post-processing.

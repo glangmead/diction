@@ -7,8 +7,10 @@ import OSLog
 ///
 /// The read can be slow, so the work runs on a detached background task; only the
 /// resulting `URL` returns to the caller. Every environment value is gathered off
-/// the main actor (no `UIDevice`), so nothing here hops back to `@MainActor`.
-enum DiagnosticsExport {
+/// the main actor (no `UIDevice`), so the whole type is `nonisolated` — the app
+/// target's default isolation is `@MainActor`, and `buildFile` must be callable
+/// from the detached task.
+nonisolated enum DiagnosticsExport {
   /// Produce the log file and return its URL. Throws if the log store can't be
   /// opened; an empty window still yields a file (header + a "no entries" note) so
   /// the user always has something to send.

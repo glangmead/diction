@@ -3,7 +3,7 @@ import Foundation
 /// Bounds on what the diagnostics export pulls out of `OSLogStore`: a recent time
 /// window and an entry ceiling, whichever is hit first. Sized to keep the export
 /// fast and the file small while covering a "reproduce, then export" session.
-enum DiagnosticsExportPolicy {
+nonisolated enum DiagnosticsExportPolicy {
   /// How far back the export reaches. Long enough to capture the lead-up to a
   /// reproduced issue, short enough that the read and file stay small.
   static let window: TimeInterval = 30 * 60

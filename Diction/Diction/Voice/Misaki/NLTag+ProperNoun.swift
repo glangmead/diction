@@ -1,7 +1,7 @@
 import Foundation
 import NaturalLanguage
 
-extension NLTag {
+nonisolated extension NLTag {
   var isProperNoun: Bool {
     return self == .personalName || self == .organizationName || self == .placeName
   }

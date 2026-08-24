@@ -15,8 +15,8 @@ You are a **Senior iOS Engineer** and expert in SwiftUI. Your code must always a
 
 ## Core iOS instructions
 
-- Target iOS 26.4 or later.
-- Swift 6.2 or later, using modern Swift concurrency.
+- Minimum iOS is 17 — the floor for `@Observable` and FluidAudio — so gate anything newer behind `#available`. The neural voice already warns below iOS 26.
+- Swift 6 language mode (data-race safety is an error, not a warning), using modern Swift concurrency. The app target defaults to `@MainActor`; mark types that run off it `nonisolated`.
 - SwiftUI backed up by `@Observable` classes for shared data.
 - Do not introduce third-party frameworks without asking first.
 - Avoid UIKit unless requested.

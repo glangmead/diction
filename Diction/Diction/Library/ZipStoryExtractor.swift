@@ -4,6 +4,7 @@ import Foundation
 /// is by file extension (the real runtime format is re-confirmed from header bytes
 /// downstream by `FormatDetector`), preferring the largest match when an archive
 /// bundles several files. Used by `IFDBClient.downloadGame` for zipped IFDB links.
+nonisolated
 enum ZipStoryExtractor {
   /// Extensions for Z-machine / Glulx story files, bare or Blorb-wrapped.
   static let storyExtensions: Set<String> = [

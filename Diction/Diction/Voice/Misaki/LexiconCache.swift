@@ -7,7 +7,7 @@ import Foundation
 /// it and it is `nil` until set — so a build done while it is `nil` (empty
 /// dicts, e.g. early in a parallel test run) can't poison the populated entry.
 /// In production `bundleURL` is set once, so all calls hit a single entry.
-enum LexiconCache {
+nonisolated enum LexiconCache {
   private static let lock = NSLock()
   nonisolated(unsafe) private static var cache: [String: Lexicon] = [:]
 

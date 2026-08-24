@@ -8,7 +8,7 @@ import Foundation
 /// value to render.
 @Observable @MainActor
 final class VoiceWarmer {
-  enum Readiness: Equatable {
+  nonisolated enum Readiness: Equatable {
     case systemVoice            // neural off → instant, no load
     case preparing
     case ready

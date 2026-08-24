@@ -29,7 +29,10 @@ final class AudioRouteController {
   @ObservationIgnored var onConfigChange: (@MainActor () -> Void)?
 
   @ObservationIgnored private let defaults: UserDefaults
-  @ObservationIgnored private var routeObserver: NSObjectProtocol?
+  /// `nonisolated(unsafe)`: the token is set once in `init` and read only in
+  /// `deinit`, which Swift 6 treats as nonisolated and so can't touch a
+  /// non-Sendable main-actor property. (`isolated deinit` needs iOS 18.4.)
+  @ObservationIgnored nonisolated(unsafe) private var routeObserver: NSObjectProtocol?
 
   private static let choiceTypeKey = "audioInputChoiceType"
   private static let choiceUIDKey = "audioInputChoiceUID"

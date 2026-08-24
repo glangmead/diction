@@ -311,7 +311,7 @@ final class VoiceCoordinator {
 
   // MARK: - Wake-word classification
 
-  enum CoordinatorCommand: Equatable {
+  nonisolated enum CoordinatorCommand: Equatable {
     case reread
     case stop
     case faster
@@ -324,7 +324,7 @@ final class VoiceCoordinator {
     case keywords
   }
 
-  enum DispatchDecision: Equatable {
+  nonisolated enum DispatchDecision: Equatable {
     case coordinator(CoordinatorCommand)
     case game
     case ignore

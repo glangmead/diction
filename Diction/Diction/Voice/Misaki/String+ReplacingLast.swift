@@ -1,6 +1,6 @@
 import Foundation
 
-extension String {
+nonisolated extension String {
   func replacingLastOccurrence(of target: Character, with replacement: Character) -> String {
     guard let lastIndex = self.lastIndex(of: target) else {
       return self

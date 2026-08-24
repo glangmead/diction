@@ -10,7 +10,7 @@ import Foundation
 /// Deliberately NOT a general ZIP library: no zip64, encryption, or multi-disk
 /// archives — IFDB's game zips don't use them. Anything it can't read throws, so the
 /// caller surfaces "no download" instead of crashing. See `ZipStoryExtractor`.
-enum ZipArchive {
+nonisolated enum ZipArchive {
   enum ZipError: Error { case notZip, unsupported, badEntry, inflateFailed, tooLarge }
 
   /// One file entry, read from the central directory.
