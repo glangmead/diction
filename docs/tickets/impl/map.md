@@ -32,7 +32,7 @@ One flat, global list of implementation tickets for Diction. Decisions are made 
 
 <!-- one bullet per chore ticket -->
 
-- [Audit the app bundle size](issues/04-audit-app-bundle-size.md) — measure download/install size per device and rank what to trim or move to on-demand resources. Measured 2026-08-24 in [bundle-size-2026-08.md](../../bundle-size-2026-08.md): 100 MB download / 120 MB install everywhere, 95 MB of it `KokoroModels.bundle`; awaiting the owner's pick from the ranked options (ship-in-box vs on-demand neural voice is the only lever that matters).
+- [Audit the app bundle size](issues/04-audit-app-bundle-size.md) — measure download/install size per device and rank what to trim or move to on-demand resources. Measured 2026-08-24 in [bundle-size-2026-08.md](../../bundle-size-2026-08.md): 100 MB download / 120 MB install everywhere, 95 MB of it `KokoroModels.bundle`; awaiting the owner's pick from the ranked options (ship-in-box vs on-demand neural narration is the only lever that matters).
 
 ## Decisions so far
 
